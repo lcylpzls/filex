@@ -128,11 +128,11 @@ func (s *Store) RunLifecycle(ctx context.Context, bucket string) (LifecycleRepor
 		}
 	}
 	if meta.Lifecycle.MaxVersions > 0 && versioning {
-	for key, versions := range byKey {
-		if err := ctx.Err(); err != nil {
-			return report, wrapCtxErr(err)
-		}
-		sortMetasNewestFirst(versions)
+		for key, versions := range byKey {
+			if err := ctx.Err(); err != nil {
+				return report, wrapCtxErr(err)
+			}
+			sortMetasNewestFirst(versions)
 			for i := meta.Lifecycle.MaxVersions; i < len(versions); i++ {
 				if err := s.removeVersionFiles(bucket, key, versions[i].VersionID); err != nil {
 					report.Messages = append(report.Messages, "版本收敛失败: "+key+": "+err.Error())
