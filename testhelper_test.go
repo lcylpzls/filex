@@ -10,14 +10,25 @@ import (
 
 // fakeLogger 记录日志消息，用于断言日志分支。
 type fakeLogger struct {
+	mu    sync.Mutex
 	infos []string
 	warns []string
 	errs  []string
 }
 
-func (f *fakeLogger) Info(msg string, _ logx.FieldGroup) { f.infos = append(f.infos, msg) }
-func (f *fakeLogger) Warn(msg string, _ logx.FieldGroup) { f.warns = append(f.warns, msg) }
+func (f *fakeLogger) Info(msg string, _ logx.FieldGroup) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.infos = append(f.infos, msg)
+}
+func (f *fakeLogger) Warn(msg string, _ logx.FieldGroup) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.warns = append(f.warns, msg)
+}
 func (f *fakeLogger) Error(msg string, _ logx.FieldGroup) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.errs = append(f.errs, msg)
 }
 

@@ -170,3 +170,129 @@ func TestHealth(t *testing.T) {
 		t.Fatalf("健康检查失败应透传：%v", err)
 	}
 }
+
+func ageUploadSession(t *testing.T, s *Store, bucket, uploadID string, hours int) {
+	t.Helper()
+	meta, err := readUploadMeta(s.fs, s.uploadMetaPath(bucket, uploadID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.CreatedAt = time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+	data, _ := json.Marshal(meta)
+	_ = os.WriteFile(s.uploadMetaPath(bucket, uploadID), data, 0o644)
+}
+
+func TestSweepStaleUploads(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	fresh, _ := s.InitiateMultipartUpload(ctx, "abc", "fresh", PutOptions{})
+	stale, _ := s.InitiateMultipartUpload(ctx, "abc", "stale", PutOptions{})
+	ageUploadSession(t, s, "abc", stale.UploadID, 48)
+
+	report, err := s.SweepOrphans(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RemovedSessions != 1 {
+		t.Fatalf("过期会话清理数量不符：%+v", report)
+	}
+	if _, err := os.Stat(s.uploadMetaPath("abc", fresh.UploadID)); err != nil {
+		t.Fatal("新鲜会话不应被清理")
+	}
+	if _, err := os.Stat(s.uploadMetaPath("abc", stale.UploadID)); !os.IsNotExist(err) {
+		t.Fatal("过期会话应被清理")
+	}
+}
+
+func TestSweepStaleUploadsErrors(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	if n := s.sweepStaleUploads(filepath.Join(s.objectsDir("abc"), ".uploads")); n != 0 {
+		t.Fatalf("缺失上传目录应返回 0：%d", n)
+	}
+	up, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
+	ageUploadSession(t, s, "abc", up.UploadID, 48)
+	injected := errors.New("注入错误")
+
+	uploadsDir := filepath.Join(s.objectsDir("abc"), ".uploads")
+	s.fs.ReadDir = func(path string) ([]os.DirEntry, error) {
+		if path == uploadsDir {
+			return nil, injected
+		}
+		return os.ReadDir(path)
+	}
+	report, err := s.SweepOrphans(ctx)
+	if err != nil || report.RemovedSessions != 0 {
+		t.Fatalf("读取失败应跳过：%+v, %v", report, err)
+	}
+	s.fs = defaultFSOps
+
+	// 会话目录内非目录项与损坏元数据：跳过
+	_ = os.WriteFile(filepath.Join(uploadsDir, "junk"), []byte("x"), 0o644)
+	bad := filepath.Join(uploadsDir, "bad")
+	_ = os.MkdirAll(bad, 0o755)
+	_ = os.WriteFile(filepath.Join(bad, "upload.json"), []byte("{"), 0o644)
+	report, err = s.SweepOrphans(ctx)
+	if err != nil || report.RemovedSessions != 1 {
+		t.Fatalf("损坏会话应跳过且过期会话清理：%+v, %v", report, err)
+	}
+}
+
+func TestDeleteBucketActiveUploads(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	up, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
+	if err := s.DeleteBucket(ctx, "abc"); err == nil {
+		t.Fatal("活动分片上传应阻止删除桶")
+	} else {
+		mustErrCode(t, err, CodeBucketNotEmpty)
+	}
+	_ = s.AbortMultipartUpload(ctx, "abc", "k", up.UploadID)
+	if err := s.DeleteBucket(ctx, "abc"); err != nil {
+		t.Fatalf("中止后删除桶失败：%v", err)
+	}
+
+	// 过期会话不阻止删除桶
+	mustBucket(t, s, "abc2")
+	up2, _ := s.InitiateMultipartUpload(ctx, "abc2", "k", PutOptions{})
+	ageUploadSession(t, s, "abc2", up2.UploadID, 48)
+	if err := s.DeleteBucket(ctx, "abc2"); err != nil {
+		t.Fatalf("过期会话不应阻止删除桶：%v", err)
+	}
+
+	// .uploads 目录读取失败与非目录项：不阻止删除
+	mustBucket(t, s, "abc3")
+	uploadsDir := filepath.Join(s.objectsDir("abc3"), ".uploads")
+	_ = os.MkdirAll(uploadsDir, 0o755)
+	_ = os.WriteFile(filepath.Join(uploadsDir, "junk"), []byte("x"), 0o644)
+	injected := errors.New("注入错误")
+	s.fs.ReadDir = func(path string) ([]os.DirEntry, error) {
+		if path == uploadsDir {
+			return nil, injected
+		}
+		return os.ReadDir(path)
+	}
+	if err := s.DeleteBucket(ctx, "abc3"); err != nil {
+		t.Fatalf("上传目录读取失败不应阻止删除：%v", err)
+	}
+	s.fs = defaultFSOps
+
+	// .uploads 中只有非目录项：不阻止删除
+	mustBucket(t, s, "abc5")
+	uploadsDir5 := filepath.Join(s.objectsDir("abc5"), ".uploads")
+	_ = os.MkdirAll(uploadsDir5, 0o755)
+	_ = os.WriteFile(filepath.Join(uploadsDir5, "junk"), []byte("x"), 0o644)
+	if err := s.DeleteBucket(ctx, "abc5"); err != nil {
+		t.Fatalf("非目录项不应阻止删除：%v", err)
+	}
+
+	// 无 .uploads 目录：孤儿巡检正常
+	mustBucket(t, s, "abc4")
+	report, err := s.SweepOrphans(ctx)
+	if err != nil || report.RemovedSessions != 0 {
+		t.Fatalf("无上传目录巡检不符：%+v, %v", report, err)
+	}
+}

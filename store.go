@@ -51,6 +51,9 @@ func New(cfg Config) (*Store, error) {
 	if cfg.MaxParts == 0 {
 		cfg.MaxParts = maxUploadParts
 	}
+	if cfg.UploadTTL <= 0 {
+		cfg.UploadTTL = defaultUploadTTL
+	}
 	abs, err := filepath.Abs(cfg.DataDir)
 	if err != nil {
 		return nil, wrapCode(err, CodeInvalidConfig, "数据目录解析失败")
@@ -212,6 +215,9 @@ func (s *Store) DeleteBucket(ctx context.Context, name string) error {
 	}
 	if len(metas) > 0 {
 		return newCode(CodeBucketNotEmpty, "桶非空")
+	}
+	if s.hasActiveUploads(name) {
+		return newCode(CodeBucketNotEmpty, "桶存在活动分片上传")
 	}
 	if err := s.fs.RemoveAll(s.bucketDir(name)); err != nil {
 		s.metrics.IncError(name, string(CodeStorageFailed))

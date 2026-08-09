@@ -32,11 +32,15 @@ type LifecycleReport struct {
 
 // SweepReport 是孤儿巡检报告。
 type SweepReport struct {
-	Buckets     int
-	RemovedData int
-	RemovedTmp  int
-	RemovedDirs int
+	Buckets         int
+	RemovedData     int
+	RemovedTmp      int
+	RemovedDirs     int
+	RemovedSessions int
 }
+
+// defaultUploadTTL 是分片会话默认保留时长。
+const defaultUploadTTL = 24 * time.Hour
 
 // SetBucketLifecycle 设置桶生命周期配置。
 func (s *Store) SetBucketLifecycle(ctx context.Context, bucket string, opts LifecycleOptions) (BucketInfo, error) {
@@ -174,7 +178,7 @@ func (s *Store) SweepOrphans(ctx context.Context) (SweepReport, error) {
 		for _, oe := range objEntries {
 			name := oe.Name()
 			if name == ".uploads" {
-				// 分片上传会话目录由上传流程管理，孤儿巡检不介入。
+				report.RemovedSessions += s.sweepStaleUploads(filepath.Join(objectsDir, name))
 				continue
 			}
 			if strings.HasSuffix(name, ".data") {
@@ -229,6 +233,54 @@ func (s *Store) SweepOrphans(ctx context.Context) (SweepReport, error) {
 		logx.Int("removed_tmp", report.RemovedTmp),
 	)
 	return report, nil
+}
+
+// sweepStaleUploads 清理超过 UploadTTL 的分片会话，返回清理数量。
+func (s *Store) sweepStaleUploads(uploadsDir string) int {
+	entries, err := s.fs.ReadDir(uploadsDir)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		meta, err := readUploadMeta(s.fs, filepath.Join(uploadsDir, e.Name(), "upload.json"))
+		if err != nil {
+			continue
+		}
+		if time.Since(meta.CreatedAt) > s.cfg.UploadTTL {
+			if s.fs.RemoveAll(filepath.Join(uploadsDir, e.Name())) == nil {
+				removed++
+			}
+		}
+	}
+	return removed
+}
+
+// hasActiveUploads 判断桶是否存在未过期的分片会话。
+func (s *Store) hasActiveUploads(bucket string) bool {
+	entries, err := s.fs.ReadDir(filepath.Join(s.objectsDir(bucket), ".uploads"))
+	if os.IsNotExist(err) {
+		return false
+	}
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		meta, err := readUploadMeta(s.fs, filepath.Join(s.objectsDir(bucket), ".uploads", e.Name(), "upload.json"))
+		if err == nil && time.Since(meta.CreatedAt) <= s.cfg.UploadTTL {
+			return true
+		}
+	}
+	return false
 }
 
 func fileExists(fs fsOps, path string) bool {

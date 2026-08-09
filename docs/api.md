@@ -23,6 +23,7 @@ type Config struct {
     MaxParts       int           // 分片部件数量上限，默认 10000
     DisableSync    bool          // true 时跳过 fsync，默认 false（即默认 fsync）
     EncryptionKey  []byte        // 32 字节主密钥；设置后启用静态加密
+    UploadTTL      time.Duration // 分片会话保留时长，默认 24 小时
     Logger         logx.Logger   // 可选结构化日志
     Metrics        Metrics       // 可选指标
 }

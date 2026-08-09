@@ -1,5 +1,19 @@
 # 更新日志
 
+## [v0.12.0] - 2026-08-10
+
+### 新增
+
+- 分片会话 TTL：`Config.UploadTTL`（默认 24 小时），孤儿巡检清理过期会话；
+- `DeleteBucket` 拒绝删除存在活动分片上传的桶；
+- CI 工业化：全平台 race、测试乱序（`-shuffle=on`）防顺序依赖；
+- 仓库工业化：CONTRIBUTING / CODEOWNERS / Issue 模板 / godoc 示例；
+- 测试桩并发安全修复（fakeLogger / fakeMetrics）。
+
+### 质量
+
+- 四包覆盖率保持 100%；race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.11.0] - 2026-08-10
 
 ### 新增

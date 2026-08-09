@@ -28,6 +28,8 @@ type Config struct {
 	MaxKeyBytes int
 	// MaxParts 是单次分片上传的部件数量上限；0 表示默认 10000。
 	MaxParts int
+	// UploadTTL 是分片会话保留时长；0 表示默认 24 小时。
+	UploadTTL time.Duration
 	// DisableSync 为 true 时跳过 fsync（默认 false，即默认落盘强一致）。
 	DisableSync bool
 	// EncryptionKey 是 32 字节主密钥；设置后启用服务端静态加密。

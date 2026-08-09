@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/lcylpzls/errx"
@@ -20,10 +21,15 @@ import (
 )
 
 type fakeLogger struct {
+	mu    sync.Mutex
 	infos []string
 }
 
-func (f *fakeLogger) Info(msg string, _ logx.FieldGroup)  { f.infos = append(f.infos, msg) }
+func (f *fakeLogger) Info(msg string, _ logx.FieldGroup) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.infos = append(f.infos, msg)
+}
 func (f *fakeLogger) Warn(msg string, _ logx.FieldGroup)  {}
 func (f *fakeLogger) Error(msg string, _ logx.FieldGroup) {}
 
