@@ -85,6 +85,23 @@ type PutOptions struct {
 type GetOptions struct {
 	// Verify 为 true 时读取过程中流式复验 SHA256，EOF 处校验。
 	Verify bool
+	// Range 请求指定字节范围（含端点）；与 Verify 互斥。
+	Range *ByteRange
+	// IfMatch 提供时仅当 ETag 匹配才返回内容（协议层使用）。
+	IfMatch string
+	// IfNoneMatch 提供时仅当 ETag 不匹配才返回内容（协议层使用）。
+	IfNoneMatch string
+}
+
+// ByteRange 表示对象内容的字节范围（含端点）。
+type ByteRange struct {
+	Start int64
+	End   int64
+}
+
+// Length 返回范围长度。
+func (r ByteRange) Length() int64 {
+	return r.End - r.Start + 1
 }
 
 // ListOptions 是 List 的选项。

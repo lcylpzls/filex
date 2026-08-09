@@ -91,6 +91,7 @@ List(ctx, bucket, opts)
 | `filex_metadata_corrupt` | 元数据损坏 | data_loss | 500 |
 | `filex_storage_failed` | 存储 IO 失败 | unavailable | 503 |
 | `filex_invalid_range` | 范围非法 | invalid_argument | 400 |
+| `filex_internal` | 服务器内部错误 | internal | 500 |
 | `filex_upload_not_found` | 分片会话不存在 | not_found | 404 |
 | `filex_upload_invalid` | 分片参数非法 | invalid_argument | 400 |
 | `filex_upload_incomplete` | 分片不完整 | invalid_argument | 400 |

@@ -118,6 +118,7 @@ jobs:
           go test -run '^$' -fuzz '^FuzzValidateBucket$' -fuzztime=10s .
           go test -run '^$' -fuzz '^FuzzValidateKey$' -fuzztime=10s .
           go test -run '^$' -fuzz '^FuzzDecodeObjectMeta$' -fuzztime=10s .
+          cd proto && go test -run '^$' -fuzz '^FuzzParseRange$' -fuzztime=10s .
 
   vulncheck:
     runs-on: ubuntu-latest

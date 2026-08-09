@@ -48,7 +48,10 @@ type PutOptions struct {
 }
 
 type GetOptions struct {
-    Verify bool // 读取时复验 SHA256
+    Verify      bool        // 读取时复验 SHA256
+    Range       *ByteRange  // 字节范围读取（与 Verify 互斥）
+    IfMatch     string      // 仅 ETag 匹配时返回（协议层）
+    IfNoneMatch string      // 仅 ETag 不匹配时返回（协议层）
 }
 
 type ListOptions struct {
@@ -93,6 +96,11 @@ type ListResult struct {
     NextMarker     string
     IsTruncated    bool
 }
+
+type ByteRange struct {
+    Start int64 // 起始字节（含）
+    End   int64 // 结束字节（含）
+}
 ```
 
 ### 2.5 错误
@@ -114,6 +122,8 @@ type HandlerConfig struct {
 
 func NewHandler(cfg HandlerConfig) http.Handler
 ```
+
+`HandlerConfig.Store` 为接口，`*filex.Store` 可直接使用。
 
 ### 3.2 客户端
 

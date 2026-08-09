@@ -45,6 +45,8 @@ func main() {
 
 - v0.1.0：核心引擎（Bucket/Object 生命周期、原子写、SHA256 完整性、
   元数据、并发安全、错误码与日志）。
+- v0.2.0：自研协议服务端与客户端（流式 Put/Get、Range、条件请求、
+  分页列表、统一错误 JSON、请求 ID）。
 
 详细规划见 [docs/roadmap.md](docs/roadmap.md)，设计见 [docs/design.md](docs/design.md)。
 
@@ -59,9 +61,47 @@ filex/
 │   ├── architecture.md    # 架构详解（布局/原子性/并发/安全）
 │   ├── api.md             # API 定版
 │   └── roadmap.md         # 版本路线
+├── proto/                 # 协议常量、线格式与 Range 解析
+├── server/                # 协议服务端（http.Handler，可挂 webx）
+├── client/                # 协议客户端（可注入 httpx）
 ├── examples/
-│   └── basic/             # 基础用法示例（独立模块）
+│   ├── basic/             # 引擎基础用法（独立模块）
+│   └── protocol/          # 服务端 + 客户端端到端（独立模块）
 └── README.md
+```
+
+## 协议快速上手（v0.2.0）
+
+```go
+import (
+	"context"
+	"log"
+	"net/http"
+	"strings"
+
+	"github.com/lcylpzls/filex"
+	"github.com/lcylpzls/filex/client"
+	"github.com/lcylpzls/filex/server"
+)
+
+func main() {
+	store, err := filex.New(filex.Config{DataDir: "./data"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+
+	go func() { _ = http.ListenAndServe(":8099", server.NewHandler(server.HandlerConfig{Store: store})) }()
+
+	c, err := client.New("http://127.0.0.1:8099")
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx := context.Background()
+	_, _ = c.CreateBucket(ctx, "my-bucket")
+	_, _ = c.Put(ctx, "my-bucket", "hello.txt",
+		strings.NewReader("你好，filex"), filex.PutOptions{})
+}
 ```
 
 ## License

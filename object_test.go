@@ -246,6 +246,52 @@ func TestGetVerifyMismatch(t *testing.T) {
 	}
 }
 
+func TestGetRange(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	mustPut(t, s, "abc", "a.txt", "hello", PutOptions{})
+
+	readRange := func(rng ByteRange) string {
+		t.Helper()
+		obj, err := s.Get(ctx, "abc", "a.txt", GetOptions{Range: &rng})
+		if err != nil {
+			t.Fatalf("范围读取失败：%v", err)
+		}
+		defer obj.Close()
+		data, err := io.ReadAll(obj)
+		if err != nil {
+			t.Fatalf("范围读取内容失败：%v", err)
+		}
+		return string(data)
+	}
+
+	if got := readRange(ByteRange{Start: 1, End: 3}); got != "ell" {
+		t.Fatalf("范围 1-3 应为 ell，实际 %q", got)
+	}
+	if got := readRange(ByteRange{Start: 3, End: 100}); got != "lo" {
+		t.Fatalf("范围越界应截断为 lo，实际 %q", got)
+	}
+	if got := readRange(ByteRange{Start: 0, End: 0}); got != "h" {
+		t.Fatalf("单字节范围应为 h，实际 %q", got)
+	}
+
+	bad := []ByteRange{{Start: -1, End: 2}, {Start: 3, End: 1}, {Start: 5, End: 9}}
+	for _, rng := range bad {
+		if _, err := s.Get(ctx, "abc", "a.txt", GetOptions{Range: &rng}); err == nil {
+			t.Fatalf("非法范围应报错：%+v", rng)
+		} else {
+			mustErrCode(t, err, CodeInvalidRange)
+		}
+	}
+
+	if _, err := s.Get(ctx, "abc", "a.txt", GetOptions{Verify: true, Range: &ByteRange{Start: 0, End: 1}}); err == nil {
+		t.Fatal("范围与校验互斥应报错")
+	} else {
+		mustErrCode(t, err, CodeInvalidArgument)
+	}
+}
+
 func TestGetErrors(t *testing.T) {
 	s, _ := newStore(t)
 	mustBucket(t, s, "abc")

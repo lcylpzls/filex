@@ -25,6 +25,9 @@
 - 列表协议端点与分页、统一错误 JSON、请求 ID；
 - 端到端示例：net/http 服务端 + 客户端。
 
+> 状态：**已发布**（v0.2.0，2026-08-10）。root / proto / server /
+> client 四包覆盖率均 100%，三平台 CI 与 Linux 多发行版矩阵全绿。
+
 ## v0.3.0 — 分片上传与断点续传
 
 - Initiate / UploadPart / Complete / Abort；

@@ -134,6 +134,9 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (*
 	if err := validateKey(key, s.cfg.MaxKeyBytes); err != nil {
 		return nil, err
 	}
+	if opts.Verify && opts.Range != nil {
+		return nil, newCode(CodeInvalidArgument, "范围读取与完整校验不能同时使用")
+	}
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
 	if _, err := s.ensureBucket(bucket); err != nil {
@@ -172,7 +175,20 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (*
 		return nil, wrapCode(err, CodeStorageFailed, "打开对象数据失败")
 	}
 	var rc io.ReadCloser = f
-	if opts.Verify {
+	if opts.Range != nil {
+		if opts.Range.Start < 0 || opts.Range.End < opts.Range.Start || opts.Range.Start >= meta.Size {
+			_ = f.Close()
+			return nil, newCode(CodeInvalidRange, "字节范围越界")
+		}
+		rng := *opts.Range
+		if rng.End >= meta.Size {
+			rng.End = meta.Size - 1
+		}
+		rc = &sectionReadCloser{
+			Reader: io.NewSectionReader(f, rng.Start, rng.Length()),
+			closer: f,
+		}
+	} else if opts.Verify {
 		rc = newVerifyingReader(f, meta.SHA256)
 	}
 	s.metrics.Add(bucket, "get", meta.Size)
@@ -409,4 +425,14 @@ func (v *verifyingReader) Close() error {
 		return c.Close()
 	}
 	return nil
+}
+
+// sectionReadCloser 组合范围读取器与底层文件关闭。
+type sectionReadCloser struct {
+	io.Reader
+	closer io.Closer
+}
+
+func (s *sectionReadCloser) Close() error {
+	return s.closer.Close()
 }

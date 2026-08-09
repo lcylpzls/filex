@@ -2,7 +2,7 @@ module github.com/lcylpzls/filex/examples
 
 go 1.26.5
 
-require github.com/lcylpzls/filex v0.1.0
+require github.com/lcylpzls/filex v0.2.0
 
 require (
 	github.com/lcylpzls/errx v1.3.1 // indirect
