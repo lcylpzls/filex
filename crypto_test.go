@@ -71,7 +71,9 @@ func TestEncryptionRoundTrip(t *testing.T) {
 	}
 
 	// 篡改密文后校验失败
-	_ = os.WriteFile(s.objectDataPath("abc", "k"), append([]byte{0x00}, raw[1:]...), 0o644)
+	tampered := append([]byte(nil), raw...)
+	tampered[16] ^= 0xff // 翻转密文正文首字节（nonce 之后）
+	_ = os.WriteFile(s.objectDataPath("abc", "k"), tampered, 0o644)
 	obj2, err := s.Get(ctx, "abc", "k", GetOptions{Verify: true})
 	if err != nil {
 		t.Fatalf("篡改后打开失败：%v", err)

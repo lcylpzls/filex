@@ -361,13 +361,14 @@ func TestClientParseObjectHeaders(t *testing.T) {
 		proto.HeaderMetadata: {`{"a":"b"}`},
 	}
 	hdr.Set(proto.HeaderSHA256, "etag")
+	hdr.Set(proto.HeaderVersionID, "v1")
 	hdr.Set(proto.HeaderCreatedAt, "2026-08-10T00:00:00Z")
 	hdr.Set("Last-Modified", "Mon, 10 Aug 2026 00:00:00 GMT")
 	info, err := parseObjectHeaders("abc", "k", hdr)
 	if err != nil {
 		t.Fatalf("解析响应头失败：%v", err)
 	}
-	if info.Size != 5 || info.ETag != "etag" || info.Metadata["a"] != "b" {
+	if info.Size != 5 || info.ETag != "etag" || info.VersionID != "v1" || info.Metadata["a"] != "b" {
 		t.Fatalf("对象信息不符：%+v", info)
 	}
 	if info.CreatedAt.IsZero() || info.UpdatedAt.IsZero() {
@@ -485,8 +486,15 @@ func TestClientVersioningAndCopy(t *testing.T) {
 	if string(data) != "aaa" {
 		t.Fatalf("历史版本内容不符：%s", data)
 	}
-	if _, err := c.HeadVersion(ctx, "abc", "k", v1.VersionID); err != nil {
+	if obj.Info.VersionID != v1.VersionID {
+		t.Fatalf("GetVersion 应返回版本 ID：%q", obj.Info.VersionID)
+	}
+	hv, err := c.HeadVersion(ctx, "abc", "k", v1.VersionID)
+	if err != nil {
 		t.Fatalf("HeadVersion 失败：%v", err)
+	}
+	if hv.VersionID != v1.VersionID {
+		t.Fatalf("HeadVersion 应返回版本 ID：%q", hv.VersionID)
 	}
 	_ = c.Delete(ctx, "abc", "k")
 	if _, err := c.RestoreVersion(ctx, "abc", "k", v1.VersionID); err != nil {

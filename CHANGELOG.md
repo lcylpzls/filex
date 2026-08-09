@@ -1,5 +1,18 @@
 # 更新日志
 
+## [v0.10.0] - 2026-08-10
+
+### 改进
+
+- 协议响应头新增 `X-Filex-Version-ID`，`GetVersion` / `HeadVersion`
+  客户端可拿到版本 ID；
+- 新增 [docs/final-review.md](docs/final-review.md) 1.0 候选终审；
+- API 冻结快照更新至 v0.10.0。
+
+### 结论
+
+- filex 达到 1.0 候选标准；**v1.0.0 是否发布由用户决定**。
+
 ## [v0.9.0] - 2026-08-10
 
 ### 改进

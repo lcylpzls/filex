@@ -543,6 +543,7 @@ func parseObjectHeaders(bucket, key string, hdr http.Header) (filex.ObjectInfo, 
 	}
 	info.ETag = hdr.Get(proto.HeaderSHA256)
 	info.ContentType = hdr.Get("Content-Type")
+	info.VersionID = hdr.Get(proto.HeaderVersionID)
 	if v := hdr.Get(proto.HeaderMetadata); v != "" {
 		if err := json.Unmarshal([]byte(v), &info.Metadata); err != nil {
 			return info, errx.NewCode(filex.CodeStorageFailed, "响应元数据头非法")

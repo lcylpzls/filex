@@ -562,6 +562,9 @@ func (h *handler) writeObjectHeaders(w http.ResponseWriter, info filex.ObjectInf
 	hdr.Set(proto.HeaderCreatedAt, info.CreatedAt.UTC().Format(time.RFC3339))
 	hdr.Set("Last-Modified", info.UpdatedAt.UTC().Format(http.TimeFormat))
 	hdr.Set("Accept-Ranges", "bytes")
+	if info.VersionID != "" {
+		hdr.Set(proto.HeaderVersionID, info.VersionID)
+	}
 }
 
 func (h *handler) writeError(w http.ResponseWriter, rid string, err error) {
