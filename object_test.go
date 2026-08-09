@@ -583,6 +583,18 @@ func TestList(t *testing.T) {
 	}
 }
 
+func TestListContextCancel(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.List(ctx, "abc", ListOptions{}); err == nil {
+		t.Fatal("取消上下文 List 应报错")
+	} else {
+		mustErrCode(t, err, CodeCancelled)
+	}
+}
+
 func TestNopMetrics(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New(Config{DataDir: dir})

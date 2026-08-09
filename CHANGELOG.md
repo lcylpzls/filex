@@ -1,5 +1,19 @@
 # 更新日志
 
+## [v0.18.0] - 2026-08-10
+
+### 改进
+
+- 上下文取消贯穿 `RunLifecycle` / `SweepOrphans` / `List`，
+  长任务可被取消并归一 `filex_cancelled`；
+- Release 工作流测试同样启用乱序（`-shuffle=on`）；
+- 客户端 godoc 示例（ExampleClient_Put）。
+
+### 质量
+
+- 四包覆盖率保持 100%；race（全平台）/ vet / staticcheck / fuzz /
+  govulncheck 全绿。
+
 ## [v0.17.0] - 2026-08-10
 
 ### 安全升级

@@ -11,6 +11,23 @@ import (
 	"time"
 )
 
+type countingCtx struct {
+	ctx   context.Context
+	n     int
+	limit int
+}
+
+func (c *countingCtx) Deadline() (time.Time, bool) { return c.ctx.Deadline() }
+func (c *countingCtx) Done() <-chan struct{}       { return c.ctx.Done() }
+func (c *countingCtx) Err() error {
+	c.n++
+	if c.n > c.limit {
+		return context.Canceled
+	}
+	return nil
+}
+func (c *countingCtx) Value(key any) any { return c.ctx.Value(key) }
+
 func TestSetBucketLifecycle(t *testing.T) {
 	s, _ := newStore(t)
 	mustBucket(t, s, "abc")
@@ -294,5 +311,51 @@ func TestDeleteBucketActiveUploads(t *testing.T) {
 	report, err := s.SweepOrphans(ctx)
 	if err != nil || report.RemovedSessions != 0 {
 		t.Fatalf("无上传目录巡检不符：%+v, %v", report, err)
+	}
+}
+
+func TestLifecycleContextCancel(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	_, _ = s.SetBucketLifecycle(ctx, "abc", LifecycleOptions{ExpireDays: 1})
+	_, _ = s.Put(ctx, "abc", "k", strings.NewReader("v"), PutOptions{})
+	cancelCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := s.RunLifecycle(cancelCtx, "abc"); err == nil {
+		t.Fatal("取消上下文 RunLifecycle 应报错")
+	} else {
+		mustErrCode(t, err, CodeCancelled)
+	}
+	if _, err := s.SweepOrphans(cancelCtx); err == nil {
+		t.Fatal("取消上下文 SweepOrphans 应报错")
+	} else {
+		mustErrCode(t, err, CodeCancelled)
+	}
+}
+
+func TestLifecycleContextCancelInnerLoops(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	_, _ = s.SetBucketVersioning(ctx, "abc", true)
+	_, _ = s.SetBucketLifecycle(ctx, "abc", LifecycleOptions{MaxVersions: 1})
+	_, _ = s.Put(ctx, "abc", "k", strings.NewReader("v1"), PutOptions{})
+	_, _ = s.Put(ctx, "abc", "k", strings.NewReader("v2"), PutOptions{})
+
+	// 过期循环放行 2 次，版本收敛循环处取消
+	runCtx := &countingCtx{ctx: ctx, limit: 2}
+	if _, err := s.RunLifecycle(runCtx, "abc"); err == nil {
+		t.Fatal("版本收敛循环取消应报错")
+	} else {
+		mustErrCode(t, err, CodeCancelled)
+	}
+
+	// 桶循环放行 1 次，对象条目循环处取消
+	sweepCtx := &countingCtx{ctx: ctx, limit: 1}
+	if _, err := s.SweepOrphans(sweepCtx); err == nil {
+		t.Fatal("对象条目循环取消应报错")
+	} else {
+		mustErrCode(t, err, CodeCancelled)
 	}
 }

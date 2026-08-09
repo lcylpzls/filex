@@ -111,6 +111,9 @@ func (s *Store) RunLifecycle(ctx context.Context, bucket string) (LifecycleRepor
 	report := LifecycleReport{}
 	byKey := map[string][]objectMeta{}
 	for _, m := range metas {
+		if err := ctx.Err(); err != nil {
+			return report, wrapCtxErr(err)
+		}
 		report.Scanned++
 		if meta.Lifecycle.ExpireDays > 0 && time.Since(m.UpdatedAt) > time.Duration(meta.Lifecycle.ExpireDays)*24*time.Hour {
 			if err := s.removeObjectFiles(bucket, m, versioning); err != nil {
@@ -125,8 +128,11 @@ func (s *Store) RunLifecycle(ctx context.Context, bucket string) (LifecycleRepor
 		}
 	}
 	if meta.Lifecycle.MaxVersions > 0 && versioning {
-		for key, versions := range byKey {
-			sortMetasNewestFirst(versions)
+	for key, versions := range byKey {
+		if err := ctx.Err(); err != nil {
+			return report, wrapCtxErr(err)
+		}
+		sortMetasNewestFirst(versions)
 			for i := meta.Lifecycle.MaxVersions; i < len(versions); i++ {
 				if err := s.removeVersionFiles(bucket, key, versions[i].VersionID); err != nil {
 					report.Messages = append(report.Messages, "版本收敛失败: "+key+": "+err.Error())
@@ -173,6 +179,9 @@ func (s *Store) SweepOrphans(ctx context.Context) (SweepReport, error) {
 		return report, wrapCode(err, CodeStorageFailed, "扫描桶目录失败")
 	}
 	for _, e := range entries {
+		if err := ctx.Err(); err != nil {
+			return report, wrapCtxErr(err)
+		}
 		if !e.IsDir() {
 			continue
 		}
@@ -187,6 +196,9 @@ func (s *Store) SweepOrphans(ctx context.Context) (SweepReport, error) {
 			continue
 		}
 		for _, oe := range objEntries {
+			if err := ctx.Err(); err != nil {
+				return report, wrapCtxErr(err)
+			}
 			name := oe.Name()
 			if name == ".uploads" {
 				report.RemovedSessions += s.sweepStaleUploads(filepath.Join(objectsDir, name))

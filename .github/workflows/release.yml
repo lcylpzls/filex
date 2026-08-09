@@ -65,11 +65,11 @@ jobs:
           check-latest: true
 
       - name: Run tests
-        run: go test -v -race ./...
+        run: go test -v -race -shuffle=on ./...
 
       - name: Run examples tests
         working-directory: examples
-        run: go test -v -race ./...
+        run: go test -v -race -shuffle=on ./...
 
       - name: Create Release
         uses: softprops/action-gh-release@v3

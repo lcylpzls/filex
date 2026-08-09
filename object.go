@@ -471,6 +471,9 @@ func (s *Store) List(ctx context.Context, bucket string, opts ListOptions) (List
 	if limit < 0 || limit > maxListLimit {
 		return ListResult{}, newCodef(CodeInvalidArgument, "limit 必须在 1-%d 之间", maxListLimit)
 	}
+	if err := ctx.Err(); err != nil {
+		return ListResult{}, wrapCtxErr(err)
+	}
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
 	if _, err := s.ensureBucket(bucket); err != nil {
