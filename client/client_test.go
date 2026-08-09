@@ -201,6 +201,30 @@ func TestClientDoAndHeaderBranches(t *testing.T) {
 	if _, err := c.Get(context.Background(), "abc", "k", filex.GetOptions{}); err == nil {
 		t.Fatal("非法响应头应报错")
 	}
+
+	rt3 := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("传输失败")
+	})
+	c.httpClient = &http.Client{Transport: rt3}
+	if _, err := c.GetVersion(context.Background(), "abc", "k", "v1", filex.GetOptions{}); err == nil {
+		t.Fatal("GetVersion 传输失败应报错")
+	}
+	if _, err := c.HeadVersion(context.Background(), "abc", "k", "v1"); err == nil {
+		t.Fatal("HeadVersion 传输失败应报错")
+	}
+
+	rt4 := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{proto.HeaderSize: {"bad"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    req,
+		}, nil
+	})
+	c.httpClient = &http.Client{Transport: rt4}
+	if _, err := c.GetVersion(context.Background(), "abc", "k", "v1", filex.GetOptions{}); err == nil {
+		t.Fatal("GetVersion 非法响应头应报错")
+	}
 }
 
 func TestClientOptionsAndNew(t *testing.T) {
@@ -402,6 +426,82 @@ func TestClientMultipartLifecycle(t *testing.T) {
 	}
 	if _, err := c.ListParts(ctx, "abc", "gone", up2.UploadID); err == nil {
 		t.Fatal("中止后部件应不可见")
+	}
+}
+
+func TestClientVersioningAndCopy(t *testing.T) {
+	c, _ := newClientServer(t)
+	ctx := context.Background()
+	_, _ = c.CreateBucket(ctx, "abc")
+	_, _ = c.CreateBucket(ctx, "dst")
+
+	if _, err := c.SetBucketVersioning(ctx, "abc", true); err != nil {
+		t.Fatalf("SetBucketVersioning 失败：%v", err)
+	}
+	if _, err := c.SetBucketQuota(ctx, "abc", 100); err != nil {
+		t.Fatalf("SetBucketQuota 失败：%v", err)
+	}
+	v1, _ := c.Put(ctx, "abc", "k", strings.NewReader("aaa"), filex.PutOptions{})
+	_, _ = c.Put(ctx, "abc", "k", strings.NewReader("bbb"), filex.PutOptions{})
+
+	versions, err := c.ListVersions(ctx, "abc", "k")
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("ListVersions 不符：%+v, %v", versions, err)
+	}
+	obj, err := c.GetVersion(ctx, "abc", "k", v1.VersionID, filex.GetOptions{})
+	if err != nil {
+		t.Fatalf("GetVersion 失败：%v", err)
+	}
+	data, _ := io.ReadAll(obj)
+	_ = obj.Close()
+	if string(data) != "aaa" {
+		t.Fatalf("历史版本内容不符：%s", data)
+	}
+	if _, err := c.HeadVersion(ctx, "abc", "k", v1.VersionID); err != nil {
+		t.Fatalf("HeadVersion 失败：%v", err)
+	}
+	_ = c.Delete(ctx, "abc", "k")
+	if _, err := c.RestoreVersion(ctx, "abc", "k", v1.VersionID); err != nil {
+		t.Fatalf("RestoreVersion 失败：%v", err)
+	}
+	versions, _ = c.ListVersions(ctx, "abc", "k")
+	if err := c.DeleteVersion(ctx, "abc", "k", versions[1].VersionID); err != nil {
+		t.Fatalf("DeleteVersion 失败：%v", err)
+	}
+	if _, err := c.Copy(ctx, "abc", "k", "dst", "c.txt"); err != nil {
+		t.Fatalf("Copy 失败：%v", err)
+	}
+	if _, err := c.Move(ctx, "abc", "k", "dst", "m.txt"); err != nil {
+		t.Fatalf("Move 失败：%v", err)
+	}
+
+	// 错误路径
+	if _, err := c.GetVersion(ctx, "abc", "k", "missing", filex.GetOptions{}); err == nil {
+		t.Fatal("缺失版本 GetVersion 应报错")
+	}
+	if _, err := c.HeadVersion(ctx, "abc", "k", "missing"); err == nil {
+		t.Fatal("缺失版本 HeadVersion 应报错")
+	}
+	if err := c.DeleteVersion(ctx, "abc", "k", "missing"); err == nil {
+		t.Fatal("缺失版本 DeleteVersion 应报错")
+	}
+	if _, err := c.RestoreVersion(ctx, "abc", "k", "missing"); err == nil {
+		t.Fatal("缺失版本 RestoreVersion 应报错")
+	}
+	if _, err := c.ListVersions(ctx, "missing", "k"); err == nil {
+		t.Fatal("缺失桶 ListVersions 应报错")
+	}
+	if _, err := c.Copy(ctx, "abc", "missing", "dst", "x"); err == nil {
+		t.Fatal("缺失源 Copy 应报错")
+	}
+	if _, err := c.Move(ctx, "abc", "missing", "dst", "x"); err == nil {
+		t.Fatal("缺失源 Move 应报错")
+	}
+	if _, err := c.SetBucketVersioning(ctx, "missing", true); err == nil {
+		t.Fatal("缺失桶 SetBucketVersioning 应报错")
+	}
+	if _, err := c.SetBucketQuota(ctx, "missing", 1); err == nil {
+		t.Fatal("缺失桶 SetBucketQuota 应报错")
 	}
 }
 

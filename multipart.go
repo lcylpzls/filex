@@ -254,6 +254,16 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 	unlock := s.locks.lock(bucket, "upload:"+uploadID)
 	defer unlock()
 
+	versioning, err := s.bucketVersioning(bucket)
+	if err != nil {
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
+	}
+	versionID := ""
+	if versioning {
+		versionID = newVersionID()
+	}
+	dataPath, metaPath := s.objectPaths(bucket, key, versionID)
+
 	um, err := readUploadMeta(s.fs, s.uploadMetaPath(bucket, uploadID))
 	if os.IsNotExist(err) {
 		return ObjectInfo{}, newCode(CodeUploadNotFound, "上传会话不存在")
@@ -292,8 +302,6 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		}
 	}
 
-	dataPath := s.objectDataPath(bucket, key)
-	metaPath := s.objectMetaPath(bucket, key)
 	objDir := filepath.Dir(dataPath)
 	if err := s.fs.MkdirAll(objDir, 0o755); err != nil {
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "创建对象目录失败")
@@ -361,11 +369,22 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		SHA256:      sum,
 		ContentType: ct,
 		Metadata:    cloneMap(um.Metadata),
+		VersionID:   versionID,
 		CreatedAt:   um.CreatedAt,
 		UpdatedAt:   time.Now().UTC(),
 	}
 	if err := s.writeJSONAtomic(metaPath, om); err != nil {
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象元数据失败")
+	}
+	if err := s.checkQuota(bucket); err != nil {
+		if versionID == "" {
+			_ = s.fs.Remove(metaPath)
+			_ = s.fs.Remove(dataPath)
+		} else {
+			_ = s.removeVersionFiles(bucket, key, versionID)
+		}
+		s.metrics.IncError(bucket, string(CodeQuotaExceeded))
+		return ObjectInfo{}, err
 	}
 	if err := s.fs.RemoveAll(dir); err != nil {
 		s.logWarn("清理上传会话失败",
@@ -378,6 +397,7 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		logx.String("bucket", bucket),
 		logx.String("key", key),
 		logx.String("etag", sum),
+		logx.String("version_id", versionID),
 	)
 	return objectInfoFromMeta(bucket, om), nil
 }

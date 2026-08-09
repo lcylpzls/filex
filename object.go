@@ -43,10 +43,20 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	unlock := s.locks.lock(bucket, key)
 	defer unlock()
 
-	dataPath := s.objectDataPath(bucket, key)
-	metaPath := s.objectMetaPath(bucket, key)
-	if oldMeta, err := readObjectMeta(s.fs, metaPath); err == nil && oldMeta.Key != key {
-		return ObjectInfo{}, newCode(CodeStorageFailed, "键哈希冲突，拒绝写入")
+	versioning, err := s.bucketVersioning(bucket)
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
+	}
+	versionID := ""
+	if versioning {
+		versionID = newVersionID()
+	}
+	dataPath, metaPath := s.objectPaths(bucket, key, versionID)
+	if versionID == "" {
+		if oldMeta, err := readObjectMeta(s.fs, metaPath); err == nil && oldMeta.Key != key {
+			return ObjectInfo{}, newCode(CodeStorageFailed, "键哈希冲突，拒绝写入")
+		}
 	}
 
 	dir := filepath.Dir(dataPath)
@@ -106,6 +116,7 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		SHA256:      computed,
 		ContentType: opts.ContentType,
 		Metadata:    cloneMap(opts.Metadata),
+		VersionID:   versionID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -116,12 +127,23 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		s.metrics.IncError(bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象元数据失败")
 	}
+	if err := s.checkQuota(bucket); err != nil {
+		if versionID == "" {
+			_ = s.fs.Remove(metaPath)
+			_ = s.fs.Remove(dataPath)
+		} else {
+			_ = s.removeVersionFiles(bucket, key, versionID)
+		}
+		s.metrics.IncError(bucket, string(CodeQuotaExceeded))
+		return ObjectInfo{}, err
+	}
 	s.syncDir(dir)
 	s.metrics.Add(bucket, "put", size)
 	s.logInfo("写入对象",
 		logx.String("bucket", bucket),
 		logx.String("key", key),
 		logx.String("etag", computed),
+		logx.String("version_id", versionID),
 	)
 	return objectInfoFromMeta(bucket, meta), nil
 }
@@ -146,16 +168,41 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (*
 	unlock := s.locks.rlock(bucket, key)
 	defer unlock()
 
-	meta, err := readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
-	if os.IsNotExist(err) {
-		s.metrics.IncError(bucket, string(CodeObjectNotFound))
-		return nil, newCode(CodeObjectNotFound, "对象不存在")
-	}
+	versioning, err := s.bucketVersioning(bucket)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
-		return nil, wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return nil, wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
 	}
-	dataPath := s.objectDataPath(bucket, key)
+	var meta *objectMeta
+	var dataPath string
+	if versioning {
+		meta, err = s.findLatestVersionMeta(bucket, key)
+		if os.IsNotExist(err) {
+			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			return nil, newCode(CodeObjectNotFound, "对象不存在")
+		}
+		if err != nil {
+			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			return nil, wrapCode(err, CodeMetadataCorrupt, "读取版本元数据失败")
+		}
+		dataPath = s.versionDataPath(bucket, key, meta.VersionID)
+	} else {
+		meta, err = readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
+		if os.IsNotExist(err) {
+			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			return nil, newCode(CodeObjectNotFound, "对象不存在")
+		}
+		if err != nil {
+			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			return nil, wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
+		}
+		dataPath = s.objectDataPath(bucket, key)
+	}
+	return s.openObject(bucket, key, meta, dataPath, opts)
+}
+
+// openObject 打开已定位元数据的对象内容。
+func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string, opts GetOptions) (*Object, error) {
 	info, err := s.fs.Stat(dataPath)
 	if os.IsNotExist(err) {
 		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
@@ -216,14 +263,32 @@ func (s *Store) Head(ctx context.Context, bucket, key string) (ObjectInfo, error
 	}
 	unlock := s.locks.rlock(bucket, key)
 	defer unlock()
-	meta, err := readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
-	if os.IsNotExist(err) {
-		s.metrics.IncError(bucket, string(CodeObjectNotFound))
-		return ObjectInfo{}, newCode(CodeObjectNotFound, "对象不存在")
-	}
+	versioning, err := s.bucketVersioning(bucket)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
-		return ObjectInfo{}, wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
+	}
+	var meta *objectMeta
+	if versioning {
+		meta, err = s.findLatestVersionMeta(bucket, key)
+		if os.IsNotExist(err) {
+			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			return ObjectInfo{}, newCode(CodeObjectNotFound, "对象不存在")
+		}
+		if err != nil {
+			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			return ObjectInfo{}, wrapCode(err, CodeMetadataCorrupt, "读取版本元数据失败")
+		}
+	} else {
+		meta, err = readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
+		if os.IsNotExist(err) {
+			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			return ObjectInfo{}, newCode(CodeObjectNotFound, "对象不存在")
+		}
+		if err != nil {
+			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			return ObjectInfo{}, wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
+		}
 	}
 	s.logInfo("查询对象头",
 		logx.String("bucket", bucket),
@@ -248,6 +313,45 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) error {
 	}
 	unlock := s.locks.lock(bucket, key)
 	defer unlock()
+
+	versioning, err := s.bucketVersioning(bucket)
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
+	}
+	if versioning {
+		latest, err := s.findLatestVersionMeta(bucket, key)
+		if os.IsNotExist(err) {
+			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			return newCode(CodeObjectNotFound, "对象不存在")
+		}
+		if err != nil {
+			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			return wrapCode(err, CodeMetadataCorrupt, "读取版本元数据失败")
+		}
+		now := time.Now().UTC()
+		marker := objectMeta{
+			Key:         key,
+			Size:        0,
+			SHA256:      emptySHA256,
+			ContentType: "application/octet-stream",
+			VersionID:   newVersionID(),
+			Deleted:     true,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := s.writeJSONAtomic(s.versionMetaPath(bucket, key, marker.VersionID), marker); err != nil {
+			s.metrics.IncError(bucket, string(CodeStorageFailed))
+			return wrapCode(err, CodeStorageFailed, "写入删除标记失败")
+		}
+		s.metrics.Add(bucket, "delete", latest.Size)
+		s.logInfo("软删除对象",
+			logx.String("bucket", bucket),
+			logx.String("key", key),
+			logx.String("version_id", marker.VersionID),
+		)
+		return nil
+	}
 
 	metaPath := s.objectMetaPath(bucket, key)
 	meta, err := readObjectMeta(s.fs, metaPath)
@@ -296,28 +400,10 @@ func (s *Store) List(ctx context.Context, bucket string, opts ListOptions) (List
 		return ListResult{}, err
 	}
 
-	entries, err := s.fs.ReadDir(s.objectsDir(bucket))
-	if os.IsNotExist(err) {
-		return ListResult{}, nil
-	}
+	metas, err := s.collectCurrentMetas(bucket)
 	if err != nil {
 		s.metrics.IncError(bucket, string(CodeStorageFailed))
 		return ListResult{}, wrapCode(err, CodeStorageFailed, "扫描对象目录失败")
-	}
-	metas := make([]objectMeta, 0, len(entries))
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		meta, err := readObjectMeta(s.fs, filepath.Join(s.objectsDir(bucket), e.Name()))
-		if err != nil {
-			s.logWarn("跳过损坏的对象元数据",
-				logx.String("bucket", bucket),
-				logx.String("file", e.Name()),
-			)
-			continue
-		}
-		metas = append(metas, *meta)
 	}
 	sort.Slice(metas, func(i, j int) bool { return metas[i].Key < metas[j].Key })
 
@@ -366,6 +452,31 @@ func (s *Store) List(ctx context.Context, bucket string, opts ListOptions) (List
 	return result, nil
 }
 
+// Copy 复制对象（保留源内容类型与元数据）。
+func (s *Store) Copy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (ObjectInfo, error) {
+	obj, err := s.Get(ctx, srcBucket, srcKey, GetOptions{})
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+	defer obj.Close()
+	return s.Put(ctx, dstBucket, dstKey, obj, PutOptions{
+		ContentType: obj.Info.ContentType,
+		Metadata:    obj.Info.Metadata,
+	})
+}
+
+// Move 移动对象（复制成功后删除源）。
+func (s *Store) Move(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (ObjectInfo, error) {
+	info, err := s.Copy(ctx, srcBucket, srcKey, dstBucket, dstKey)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+	if err := s.Delete(ctx, srcBucket, srcKey); err != nil {
+		return ObjectInfo{}, err
+	}
+	return info, nil
+}
+
 // objectInfoFromMeta 将对象元数据转换为公开快照。
 func objectInfoFromMeta(bucket string, m objectMeta) ObjectInfo {
 	ct := m.ContentType
@@ -379,6 +490,8 @@ func objectInfoFromMeta(bucket string, m objectMeta) ObjectInfo {
 		ETag:        m.SHA256,
 		ContentType: ct,
 		Metadata:    cloneMap(m.Metadata),
+		VersionID:   m.VersionID,
+		Deleted:     m.Deleted,
 		CreatedAt:   m.CreatedAt,
 		UpdatedAt:   m.UpdatedAt,
 	}

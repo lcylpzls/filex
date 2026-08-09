@@ -484,3 +484,70 @@ func TestReadPartMetaMissing(t *testing.T) {
 		t.Fatalf("缺失部件元数据应返回不存在：%v", err)
 	}
 }
+
+func TestMultipartVersionedAndQuota(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	_, _ = s.SetBucketVersioning(ctx, "abc", true)
+	_, _ = s.SetBucketQuota(ctx, "abc", 5)
+
+	up, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
+	_, _ = s.UploadPart(ctx, "abc", "k", up.UploadID, 1, strings.NewReader("aaa"))
+	info, err := s.CompleteMultipartUpload(ctx, "abc", "k", up.UploadID)
+	if err != nil {
+		t.Fatalf("版本化分片完成失败：%v", err)
+	}
+	if info.VersionID == "" {
+		t.Fatal("版本化桶分片应生成版本")
+	}
+
+	up2, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
+	_, _ = s.UploadPart(ctx, "abc", "k", up2.UploadID, 1, strings.NewReader("bbb"))
+	if _, err := s.CompleteMultipartUpload(ctx, "abc", "k", up2.UploadID); err == nil {
+		t.Fatal("超配额分片完成应报错")
+	} else {
+		mustErrCode(t, err, CodeQuotaExceeded)
+	}
+	versions, _ := s.ListVersions(ctx, "abc", "k")
+	if len(versions) != 1 {
+		t.Fatalf("超配额分片应回滚：%+v", versions)
+	}
+
+	// 非版本化桶配额回滚
+	s3, _ := newStore(t)
+	mustBucket(t, s3, "abc")
+	_, _ = s3.SetBucketQuota(ctx, "abc", 3)
+	_, _ = s3.Put(ctx, "abc", "existing", strings.NewReader("aaa"), PutOptions{})
+	up3, _ := s3.InitiateMultipartUpload(ctx, "abc", "new", PutOptions{})
+	_, _ = s3.UploadPart(ctx, "abc", "new", up3.UploadID, 1, strings.NewReader("bbb"))
+	if _, err := s3.CompleteMultipartUpload(ctx, "abc", "new", up3.UploadID); err == nil {
+		t.Fatal("非版本化超配额分片应报错")
+	} else {
+		mustErrCode(t, err, CodeQuotaExceeded)
+	}
+	if _, err := s3.Head(ctx, "abc", "new"); err == nil {
+		t.Fatal("非版本化超配额对象应回滚")
+	}
+}
+
+func TestMultipartCompleteVersioningError(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	up, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
+	_, _ = s.UploadPart(ctx, "abc", "k", up.UploadID, 1, strings.NewReader("a"))
+
+	injected := errors.New("注入错误")
+	calls := 0
+	s.fs.ReadFile = func(path string) ([]byte, error) {
+		calls++
+		if calls > 1 {
+			return nil, injected
+		}
+		return os.ReadFile(path)
+	}
+	if _, err := s.CompleteMultipartUpload(ctx, "abc", "k", up.UploadID); !errors.Is(err, injected) {
+		t.Fatalf("Complete 版本配置读取失败应透传：%v", err)
+	}
+}

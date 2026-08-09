@@ -36,6 +36,15 @@ type Store interface {
 	CompleteMultipartUpload(ctx context.Context, bucket, key, uploadID string) (filex.ObjectInfo, error)
 	AbortMultipartUpload(ctx context.Context, bucket, key, uploadID string) error
 	ListParts(ctx context.Context, bucket, key, uploadID string) ([]filex.PartInfo, error)
+	SetBucketVersioning(ctx context.Context, name string, enabled bool) (filex.BucketInfo, error)
+	SetBucketQuota(ctx context.Context, name string, quota int64) (filex.BucketInfo, error)
+	GetVersion(ctx context.Context, bucket, key, versionID string, opts filex.GetOptions) (*filex.Object, error)
+	HeadVersion(ctx context.Context, bucket, key, versionID string) (filex.ObjectInfo, error)
+	DeleteVersion(ctx context.Context, bucket, key, versionID string) error
+	RestoreVersion(ctx context.Context, bucket, key, versionID string) (filex.ObjectInfo, error)
+	ListVersions(ctx context.Context, bucket, key string) ([]filex.ObjectInfo, error)
+	Copy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (filex.ObjectInfo, error)
+	Move(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (filex.ObjectInfo, error)
 }
 
 // HandlerConfig 是协议处理器的配置。
@@ -121,6 +130,30 @@ func (w *statusWriter) Write(p []byte) (int, error) {
 }
 
 func (h *handler) handleCreateBucket(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	if v := q.Get("versioning"); v != "" {
+		info, err := h.cfg.Store.SetBucketVersioning(r.Context(), r.PathValue("bucket"), v == "true")
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToBucketJSON(info))
+		return
+	}
+	if v := q.Get("quota"); v != "" {
+		quota, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			h.writeError(w, requestID(r), errx.NewCode(filex.CodeInvalidArgument, "quota 必须是整数"))
+			return
+		}
+		info, err := h.cfg.Store.SetBucketQuota(r.Context(), r.PathValue("bucket"), quota)
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToBucketJSON(info))
+		return
+	}
 	info, err := h.cfg.Store.CreateBucket(r.Context(), r.PathValue("bucket"))
 	if err != nil {
 		h.writeError(w, requestID(r), err)
@@ -194,6 +227,36 @@ func (h *handler) handlePutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	if q.Get("copy") == "1" || q.Get("move") == "1" {
+		srcBucket := q.Get("source-bucket")
+		srcKey := q.Get("source-key")
+		if srcBucket == "" || srcKey == "" {
+			h.writeError(w, requestID(r), errx.NewCode(filex.CodeInvalidArgument, "copy/move 必须提供 source-bucket 与 source-key"))
+			return
+		}
+		var info filex.ObjectInfo
+		var err error
+		if q.Get("move") == "1" {
+			info, err = h.cfg.Store.Move(r.Context(), srcBucket, srcKey, bucket, key)
+		} else {
+			info, err = h.cfg.Store.Copy(r.Context(), srcBucket, srcKey, bucket, key)
+		}
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToObjectJSON(info))
+		return
+	}
+	if q.Get("restore") == "1" {
+		info, err := h.cfg.Store.RestoreVersion(r.Context(), bucket, key, q.Get("version-id"))
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToObjectJSON(info))
+		return
+	}
 	switch q.Get("upload") {
 	case "initiate":
 		metadata, err := parseMetadataHeader(r.Header.Get(proto.HeaderMetadata))
@@ -260,13 +323,36 @@ func (h *handler) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, requestID(r), errx.NewCode(filex.CodeInvalidKey, "键名不能为空"))
 		return
 	}
-	if r.URL.Query().Get("upload") == "parts" {
-		parts, err := h.cfg.Store.ListParts(r.Context(), bucket, key, r.URL.Query().Get("upload-id"))
+	q := r.URL.Query()
+	if q.Get("upload") == "parts" {
+		parts, err := h.cfg.Store.ListParts(r.Context(), bucket, key, q.Get("upload-id"))
 		if err != nil {
 			h.writeError(w, requestID(r), err)
 			return
 		}
 		writeJSON(w, http.StatusOK, proto.ToPartListJSON(parts))
+		return
+	}
+	if q.Get("versions") == "true" {
+		objs, err := h.cfg.Store.ListVersions(r.Context(), bucket, key)
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToObjectListJSON(objs))
+		return
+	}
+	if vid := q.Get("version-id"); vid != "" {
+		obj, err := h.cfg.Store.GetVersion(r.Context(), bucket, key, vid, filex.GetOptions{})
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		defer obj.Close()
+		h.writeObjectHeaders(w, obj.Info)
+		w.Header().Set("Content-Length", strconv.FormatInt(obj.Info.Size, 10))
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.Copy(w, obj)
 		return
 	}
 	info, err := h.cfg.Store.Head(r.Context(), bucket, key)
@@ -311,7 +397,13 @@ func (h *handler) handleHeadObject(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, requestID(r), errx.NewCode(filex.CodeInvalidKey, "键名不能为空"))
 		return
 	}
-	info, err := h.cfg.Store.Head(r.Context(), bucket, key)
+	var info filex.ObjectInfo
+	var err error
+	if vid := r.URL.Query().Get("version-id"); vid != "" {
+		info, err = h.cfg.Store.HeadVersion(r.Context(), bucket, key, vid)
+	} else {
+		info, err = h.cfg.Store.Head(r.Context(), bucket, key)
+	}
 	if err != nil {
 		h.writeError(w, requestID(r), err)
 		return
@@ -321,6 +413,14 @@ func (h *handler) handleHeadObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
+	if vid := r.URL.Query().Get("version-id"); vid != "" {
+		if err := h.cfg.Store.DeleteVersion(r.Context(), r.PathValue("bucket"), r.PathValue("key"), vid); err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.URL.Query().Get("upload") == "abort" {
 		if err := h.cfg.Store.AbortMultipartUpload(r.Context(), r.PathValue("bucket"), r.PathValue("key"), r.URL.Query().Get("upload-id")); err != nil {
 			h.writeError(w, requestID(r), err)

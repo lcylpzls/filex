@@ -51,8 +51,11 @@ type Metrics interface {
 
 // BucketInfo 是桶元数据快照。
 type BucketInfo struct {
-	Name      string
-	CreatedAt time.Time
+	Name       string
+	Versioning bool
+	Quota      int64 // 0 表示不限
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // ObjectInfo 是对象元数据快照。
@@ -63,6 +66,8 @@ type ObjectInfo struct {
 	ETag        string // 内容 SHA256 十六进制
 	ContentType string
 	Metadata    map[string]string
+	VersionID   string
+	Deleted     bool
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

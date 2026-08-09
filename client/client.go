@@ -203,6 +203,113 @@ func (c *Client) List(ctx context.Context, bucket string, opts filex.ListOptions
 	return out.ToFilex(), nil
 }
 
+// SetBucketVersioning 开关桶版本化。
+func (c *Client) SetBucketVersioning(ctx context.Context, name string, enabled bool) (filex.BucketInfo, error) {
+	path := proto.BasePath + "/buckets/" + url.PathEscape(name) +
+		"?versioning=" + strconv.FormatBool(enabled)
+	var out proto.BucketInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, path, nil, nil, &out); err != nil {
+		return filex.BucketInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
+// SetBucketQuota 设置桶配额（0 表示不限）。
+func (c *Client) SetBucketQuota(ctx context.Context, name string, quota int64) (filex.BucketInfo, error) {
+	path := proto.BasePath + "/buckets/" + url.PathEscape(name) +
+		"?quota=" + strconv.FormatInt(quota, 10)
+	var out proto.BucketInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, path, nil, nil, &out); err != nil {
+		return filex.BucketInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
+// GetVersion 读取指定版本。
+func (c *Client) GetVersion(ctx context.Context, bucket, key, versionID string, opts filex.GetOptions) (*filex.Object, error) {
+	path := c.objectPath(bucket, key) + "?version-id=" + url.QueryEscape(versionID)
+	resp, err := c.do(ctx, http.MethodGet, path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		return nil, decodeError(resp)
+	}
+	info, err := parseObjectHeaders(bucket, key, resp.Header)
+	if err != nil {
+		_ = resp.Body.Close()
+		return nil, err
+	}
+	return &filex.Object{Info: info, ReadCloser: resp.Body}, nil
+}
+
+// HeadVersion 查询指定版本元数据。
+func (c *Client) HeadVersion(ctx context.Context, bucket, key, versionID string) (filex.ObjectInfo, error) {
+	path := c.objectPath(bucket, key) + "?version-id=" + url.QueryEscape(versionID)
+	resp, err := c.do(ctx, http.MethodHead, path, nil, nil)
+	if err != nil {
+		return filex.ObjectInfo{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return filex.ObjectInfo{}, decodeError(resp)
+	}
+	return parseObjectHeaders(bucket, key, resp.Header)
+}
+
+// DeleteVersion 永久删除指定版本。
+func (c *Client) DeleteVersion(ctx context.Context, bucket, key, versionID string) error {
+	path := c.objectPath(bucket, key) + "?version-id=" + url.QueryEscape(versionID)
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil, nil)
+}
+
+// RestoreVersion 将历史版本恢复为当前版本。
+func (c *Client) RestoreVersion(ctx context.Context, bucket, key, versionID string) (filex.ObjectInfo, error) {
+	path := c.objectPath(bucket, key) + "?restore=1&version-id=" + url.QueryEscape(versionID)
+	var out proto.ObjectInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, path, nil, nil, &out); err != nil {
+		return filex.ObjectInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
+// ListVersions 枚举指定键的全部版本。
+func (c *Client) ListVersions(ctx context.Context, bucket, key string) ([]filex.ObjectInfo, error) {
+	path := c.objectPath(bucket, key) + "?versions=true"
+	var out proto.ObjectListJSON
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.ToFilex(), nil
+}
+
+// Copy 复制对象到目标桶/键。
+func (c *Client) Copy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (filex.ObjectInfo, error) {
+	q := url.Values{}
+	q.Set("copy", "1")
+	q.Set("source-bucket", srcBucket)
+	q.Set("source-key", srcKey)
+	var out proto.ObjectInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, c.objectPath(dstBucket, dstKey)+"?"+q.Encode(), nil, nil, &out); err != nil {
+		return filex.ObjectInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
+// Move 移动对象到目标桶/键。
+func (c *Client) Move(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (filex.ObjectInfo, error) {
+	q := url.Values{}
+	q.Set("move", "1")
+	q.Set("source-bucket", srcBucket)
+	q.Set("source-key", srcKey)
+	var out proto.ObjectInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, c.objectPath(dstBucket, dstKey)+"?"+q.Encode(), nil, nil, &out); err != nil {
+		return filex.ObjectInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
 // InitiateMultipartUpload 创建分片上传会话。
 func (c *Client) InitiateMultipartUpload(ctx context.Context, bucket, key string, opts filex.PutOptions) (filex.UploadInfo, error) {
 	hdr := http.Header{}

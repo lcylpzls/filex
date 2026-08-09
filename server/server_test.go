@@ -170,6 +170,66 @@ func TestServerMultipartLifecycle(t *testing.T) {
 	}
 }
 
+func TestServerVersioningCopyQuota(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	ctx := context.Background()
+	c, _ := client.New(ts.URL)
+	_, _ = c.CreateBucket(ctx, "abc")
+	_, _ = c.CreateBucket(ctx, "dst")
+
+	if _, err := c.SetBucketVersioning(ctx, "abc", true); err != nil {
+		t.Fatalf("开启版本化失败：%v", err)
+	}
+	if _, err := c.SetBucketQuota(ctx, "abc", 100); err != nil {
+		t.Fatalf("设置配额失败：%v", err)
+	}
+	v1, _ := c.Put(ctx, "abc", "k", strings.NewReader("aaa"), filex.PutOptions{})
+	_, _ = c.Put(ctx, "abc", "k", strings.NewReader("bbb"), filex.PutOptions{})
+
+	versions, err := c.ListVersions(ctx, "abc", "k")
+	if err != nil || len(versions) != 2 {
+		t.Fatalf("版本列表不符：%+v, %v", versions, err)
+	}
+	old, err := c.GetVersion(ctx, "abc", "k", v1.VersionID, filex.GetOptions{})
+	if err != nil {
+		t.Fatalf("GetVersion 失败：%v", err)
+	}
+	oldData, _ := io.ReadAll(old)
+	_ = old.Close()
+	if string(oldData) != "aaa" {
+		t.Fatalf("历史版本内容不符：%s", oldData)
+	}
+	if _, err := c.HeadVersion(ctx, "abc", "k", v1.VersionID); err != nil {
+		t.Fatalf("HeadVersion 失败：%v", err)
+	}
+	_ = c.Delete(ctx, "abc", "k")
+	if _, err := c.RestoreVersion(ctx, "abc", "k", v1.VersionID); err != nil {
+		t.Fatalf("RestoreVersion 失败：%v", err)
+	}
+	versions, _ = c.ListVersions(ctx, "abc", "k")
+	if err := c.DeleteVersion(ctx, "abc", "k", versions[1].VersionID); err != nil {
+		t.Fatalf("DeleteVersion 失败：%v", err)
+	}
+	if _, err := c.Copy(ctx, "abc", "k", "dst", "copy.txt"); err != nil {
+		t.Fatalf("Copy 失败：%v", err)
+	}
+	if _, err := c.Move(ctx, "abc", "k", "dst", "moved.txt"); err != nil {
+		t.Fatalf("Move 失败：%v", err)
+	}
+
+	// 配额超限
+	_, _ = c.CreateBucket(ctx, "quota")
+	_, _ = c.SetBucketQuota(ctx, "quota", 5)
+	if _, err := c.Put(ctx, "quota", "big", strings.NewReader("hello"), filex.PutOptions{}); err != nil {
+		t.Fatalf("配额内写入失败：%v", err)
+	}
+	if _, err := c.Put(ctx, "quota", "big2", strings.NewReader("world"), filex.PutOptions{}); err == nil {
+		t.Fatal("超配额应报错")
+	} else if !errx.Is(err, filex.CodeQuotaExceeded) {
+		t.Fatalf("错误码不符：%v", err)
+	}
+}
+
 func TestServerRawHTTP(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	ctx := context.Background()
@@ -437,6 +497,66 @@ func (f *fakeStore) ListParts(context.Context, string, string, string) ([]filex.
 	return []filex.PartInfo{{PartNumber: 1}}, nil
 }
 
+func (f *fakeStore) SetBucketVersioning(context.Context, string, bool) (filex.BucketInfo, error) {
+	if f.headBucketErr != nil {
+		return filex.BucketInfo{}, f.headBucketErr
+	}
+	return filex.BucketInfo{Name: "abc", Versioning: true}, nil
+}
+
+func (f *fakeStore) SetBucketQuota(context.Context, string, int64) (filex.BucketInfo, error) {
+	if f.headBucketErr != nil {
+		return filex.BucketInfo{}, f.headBucketErr
+	}
+	return filex.BucketInfo{Name: "abc", Quota: 100}, nil
+}
+
+func (f *fakeStore) GetVersion(context.Context, string, string, string, filex.GetOptions) (*filex.Object, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return &filex.Object{Info: f.headInfo, ReadCloser: io.NopCloser(strings.NewReader("x"))}, nil
+}
+
+func (f *fakeStore) HeadVersion(context.Context, string, string, string) (filex.ObjectInfo, error) {
+	if f.headErr != nil {
+		return filex.ObjectInfo{}, f.headErr
+	}
+	return f.headInfo, nil
+}
+
+func (f *fakeStore) DeleteVersion(context.Context, string, string, string) error {
+	return f.deleteErr
+}
+
+func (f *fakeStore) RestoreVersion(context.Context, string, string, string) (filex.ObjectInfo, error) {
+	if f.putErr != nil {
+		return filex.ObjectInfo{}, f.putErr
+	}
+	return f.headInfo, nil
+}
+
+func (f *fakeStore) ListVersions(context.Context, string, string) ([]filex.ObjectInfo, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return []filex.ObjectInfo{f.headInfo}, nil
+}
+
+func (f *fakeStore) Copy(context.Context, string, string, string, string) (filex.ObjectInfo, error) {
+	if f.putErr != nil {
+		return filex.ObjectInfo{}, f.putErr
+	}
+	return f.headInfo, nil
+}
+
+func (f *fakeStore) Move(context.Context, string, string, string, string) (filex.ObjectInfo, error) {
+	if f.putErr != nil {
+		return filex.ObjectInfo{}, f.putErr
+	}
+	return f.headInfo, nil
+}
+
 func TestServerHandlerErrorBranches(t *testing.T) {
 	injected := errors.New("注入错误")
 	f := &fakeStore{
@@ -448,6 +568,7 @@ func TestServerHandlerErrorBranches(t *testing.T) {
 		putErr:          injected,
 		headErr:         injected,
 		deleteErr:       injected,
+		getErr:          injected,
 	}
 	ts := httptest.NewServer(NewHandler(HandlerConfig{Store: f}))
 	defer ts.Close()
@@ -471,6 +592,15 @@ func TestServerHandlerErrorBranches(t *testing.T) {
 		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?upload=complete&upload-id=u", nil},
 		{http.MethodGet, "/filex/v1/buckets/abc/objects/k?upload=parts&upload-id=u", nil},
 		{http.MethodDelete, "/filex/v1/buckets/abc/objects/k?upload=abort&upload-id=u", nil},
+		{http.MethodPut, "/filex/v1/buckets/abc?versioning=true", nil},
+		{http.MethodPut, "/filex/v1/buckets/abc?quota=1", nil},
+		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?copy=1&source-bucket=s&source-key=k", nil},
+		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?move=1&source-bucket=s&source-key=k", nil},
+		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?restore=1&version-id=v", nil},
+		{http.MethodGet, "/filex/v1/buckets/abc/objects/k?versions=true", nil},
+		{http.MethodGet, "/filex/v1/buckets/abc/objects/k?version-id=v", nil},
+		{http.MethodHead, "/filex/v1/buckets/abc/objects/k?version-id=v", nil},
+		{http.MethodDelete, "/filex/v1/buckets/abc/objects/k?version-id=v", nil},
 	}
 	for _, c := range cases {
 		req, err := http.NewRequest(c.method, ts.URL+c.path, c.body)
@@ -550,6 +680,26 @@ func TestServerInvalidInputBranches(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("initiate 非法元数据状态码不符：%d", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc?quota=abc", nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("非法 quota 状态码不符：%d", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc/objects/k?copy=1", nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("缺少源地址状态码不符：%d", resp.StatusCode)
 	}
 
 	for _, c := range []struct{ method, path string }{

@@ -106,3 +106,14 @@ func TestPartListWireRoundTrip(t *testing.T) {
 		t.Fatalf("部件列表往返不符：%+v", back)
 	}
 }
+
+func TestObjectListWireRoundTrip(t *testing.T) {
+	objs := []filex.ObjectInfo{
+		{Bucket: "abc", Key: "k", ETag: "e1", VersionID: "v1"},
+		{Bucket: "abc", Key: "k", ETag: "e2", VersionID: "v2", Deleted: true},
+	}
+	back := ToObjectListJSON(objs).ToFilex()
+	if len(back) != 2 || back[0].VersionID != "v1" || !back[1].Deleted {
+		t.Fatalf("对象列表往返不符：%+v", back)
+	}
+}

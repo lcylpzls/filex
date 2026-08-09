@@ -1,5 +1,29 @@
 # 更新日志
 
+## [v0.4.0] - 2026-08-10
+
+### 新增
+
+- 桶版本化与软删除：
+  - `SetBucketVersioning` / `GetVersion` / `HeadVersion` /
+    `DeleteVersion` / `RestoreVersion` / `ListVersions`；
+  - 删除转为删除标记，历史版本可枚举、可读、可恢复、可永久删除；
+  - 版本化桶的 List/Head/Get 自动指向最新可见版本；
+- 对象管理：`Copy` / `Move`（保留内容类型与元数据）；
+- 桶配额：`SetBucketQuota`，写入与分片完成时检查并回滚超限对象；
+- 协议层：bucket `versioning` / `quota` 查询参数；对象
+  `version-id` / `versions=true` / `copy` / `move` / `restore` 端点；
+  Bucket/Object 线格式携带版本化、配额与版本 ID；
+- 客户端同名方法：`SetBucketVersioning` / `SetBucketQuota` /
+  `GetVersion` / `HeadVersion` / `DeleteVersion` / `RestoreVersion` /
+  `ListVersions` / `Copy` / `Move`；
+- 分片上传支持版本化桶与配额回滚。
+
+### 质量
+
+- 根包与 proto / server / client 语句覆盖率均 100%；
+  race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.3.0] - 2026-08-10
 
 ### 新增

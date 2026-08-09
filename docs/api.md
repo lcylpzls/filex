@@ -182,3 +182,39 @@ PUT    /filex/v1/buckets/{bucket}/objects/{key}?upload=complete&upload-id=..
 GET    /filex/v1/buckets/{bucket}/objects/{key}?upload=parts&upload-id=..
 DELETE /filex/v1/buckets/{bucket}/objects/{key}?upload=abort&upload-id=..
 ```
+
+## 4.2 版本化与对象管理 API（v0.4.0）
+
+```go
+func (s *Store) SetBucketVersioning(ctx context.Context, name string,
+    enabled bool) (BucketInfo, error)
+func (s *Store) SetBucketQuota(ctx context.Context, name string,
+    quota int64) (BucketInfo, error)
+func (s *Store) GetVersion(ctx context.Context, bucket, key, versionID string,
+    opts GetOptions) (*Object, error)
+func (s *Store) HeadVersion(ctx context.Context, bucket, key,
+    versionID string) (ObjectInfo, error)
+func (s *Store) DeleteVersion(ctx context.Context, bucket, key,
+    versionID string) error
+func (s *Store) RestoreVersion(ctx context.Context, bucket, key,
+    versionID string) (ObjectInfo, error)
+func (s *Store) ListVersions(ctx context.Context, bucket, key string) ([]ObjectInfo, error)
+func (s *Store) Copy(ctx context.Context, srcBucket, srcKey, dstBucket,
+    dstKey string) (ObjectInfo, error)
+func (s *Store) Move(ctx context.Context, srcBucket, srcKey, dstBucket,
+    dstKey string) (ObjectInfo, error)
+```
+
+协议端点：
+
+```text
+PUT    /filex/v1/buckets/{bucket}?versioning=true|false
+PUT    /filex/v1/buckets/{bucket}?quota=N
+GET    /filex/v1/buckets/{bucket}/objects/{key}?version-id=..
+GET    /filex/v1/buckets/{bucket}/objects/{key}?versions=true
+HEAD   /filex/v1/buckets/{bucket}/objects/{key}?version-id=..
+DELETE /filex/v1/buckets/{bucket}/objects/{key}?version-id=..
+PUT    /filex/v1/buckets/{bucket}/objects/{key}?restore=1&version-id=..
+PUT    /filex/v1/buckets/{bucket}/objects/{key}?copy=1&source-bucket=..&source-key=..
+PUT    /filex/v1/buckets/{bucket}/objects/{key}?move=1&source-bucket=..&source-key=..
+```

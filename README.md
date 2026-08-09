@@ -49,6 +49,7 @@ func main() {
   分页列表、统一错误 JSON、请求 ID）。
 - v0.3.0：分片上传与断点续传（部件级 SHA256、乱序/覆盖、并发上传、
   失败自动中止）。
+- v0.4.0：版本化与软删除、Copy/Move、桶配额（超限自动回滚）。
 
 详细规划见 [docs/roadmap.md](docs/roadmap.md)，设计见 [docs/design.md](docs/design.md)。
 

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -89,14 +88,76 @@ func (s *Store) CreateBucket(ctx context.Context, name string) (BucketInfo, erro
 		s.metrics.IncError(name, string(CodeStorageFailed))
 		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "创建桶目录失败")
 	}
-	meta := bucketMeta{Name: name, CreatedAt: time.Now().UTC()}
+	now := time.Now().UTC()
+	meta := bucketMeta{Name: name, CreatedAt: now, UpdatedAt: now}
 	if err := s.writeJSONAtomic(metaPath, meta); err != nil {
 		s.metrics.IncError(name, string(CodeStorageFailed))
 		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "写入桶元数据失败")
 	}
 	s.metrics.Add(name, "create_bucket", 0)
 	s.logInfo("创建桶", logx.String("bucket", name))
-	return BucketInfo{Name: name, CreatedAt: meta.CreatedAt}, nil
+	return BucketInfo{
+		Name:       name,
+		Versioning: meta.Versioning,
+		Quota:      meta.Quota,
+		CreatedAt:  meta.CreatedAt,
+		UpdatedAt:  meta.UpdatedAt,
+	}, nil
+}
+
+// SetBucketVersioning 开关桶版本化。
+func (s *Store) SetBucketVersioning(ctx context.Context, name string, enabled bool) (BucketInfo, error) {
+	if err := validateBucketName(name); err != nil {
+		return BucketInfo{}, err
+	}
+	s.bucketMu.Lock()
+	defer s.bucketMu.Unlock()
+	meta, err := readBucketMeta(s.fs, s.bucketMetaPath(name))
+	if os.IsNotExist(err) {
+		return BucketInfo{}, newCode(CodeBucketNotFound, "桶不存在")
+	}
+	if err != nil {
+		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "读取桶元数据失败")
+	}
+	meta.Versioning = enabled
+	meta.UpdatedAt = time.Now().UTC()
+	if err := s.writeJSONAtomic(s.bucketMetaPath(name), meta); err != nil {
+		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "写入桶元数据失败")
+	}
+	s.logInfo("设置桶版本化",
+		logx.String("bucket", name),
+		logx.Bool("versioning", enabled),
+	)
+	return bucketInfoFromMeta(*meta), nil
+}
+
+// SetBucketQuota 设置桶配额（0 表示不限）。
+func (s *Store) SetBucketQuota(ctx context.Context, name string, quota int64) (BucketInfo, error) {
+	if err := validateBucketName(name); err != nil {
+		return BucketInfo{}, err
+	}
+	if quota < 0 {
+		return BucketInfo{}, newCode(CodeInvalidArgument, "配额不能为负数")
+	}
+	s.bucketMu.Lock()
+	defer s.bucketMu.Unlock()
+	meta, err := readBucketMeta(s.fs, s.bucketMetaPath(name))
+	if os.IsNotExist(err) {
+		return BucketInfo{}, newCode(CodeBucketNotFound, "桶不存在")
+	}
+	if err != nil {
+		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "读取桶元数据失败")
+	}
+	meta.Quota = quota
+	meta.UpdatedAt = time.Now().UTC()
+	if err := s.writeJSONAtomic(s.bucketMetaPath(name), meta); err != nil {
+		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "写入桶元数据失败")
+	}
+	s.logInfo("设置桶配额",
+		logx.String("bucket", name),
+		logx.Int64("quota", quota),
+	)
+	return bucketInfoFromMeta(*meta), nil
 }
 
 // DeleteBucket 删除空桶；存在对象时返回 filex_bucket_not_empty。
@@ -114,15 +175,13 @@ func (s *Store) DeleteBucket(ctx context.Context, name string) error {
 		return wrapCode(err, CodeMetadataCorrupt, "读取桶元数据失败")
 	}
 
-	entries, err := s.fs.ReadDir(s.objectsDir(name))
-	if err != nil && !os.IsNotExist(err) {
+	metas, err := s.collectCurrentMetas(name)
+	if err != nil {
 		s.metrics.IncError(name, string(CodeStorageFailed))
 		return wrapCode(err, CodeStorageFailed, "扫描桶内容失败")
 	}
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".json") {
-			return newCode(CodeBucketNotEmpty, "桶非空")
-		}
+	if len(metas) > 0 {
+		return newCode(CodeBucketNotEmpty, "桶非空")
 	}
 	if err := s.fs.RemoveAll(s.bucketDir(name)); err != nil {
 		s.metrics.IncError(name, string(CodeStorageFailed))
@@ -145,7 +204,7 @@ func (s *Store) HeadBucket(ctx context.Context, name string) (BucketInfo, error)
 		s.metrics.IncError(name, errxCode(err))
 		return BucketInfo{}, err
 	}
-	return BucketInfo{Name: meta.Name, CreatedAt: meta.CreatedAt}, nil
+	return bucketInfoFromMeta(*meta), nil
 }
 
 // ListBuckets 返回全部桶，按名称排序。
@@ -166,10 +225,14 @@ func (s *Store) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 			s.logWarn("跳过损坏的桶元数据", logx.String("bucket", e.Name()))
 			continue
 		}
-		result = append(result, BucketInfo{Name: meta.Name, CreatedAt: meta.CreatedAt})
+		result = append(result, bucketInfoFromMeta(*meta))
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result, nil
+}
+
+func bucketInfoFromMeta(m bucketMeta) BucketInfo {
+	return BucketInfo(m)
 }
 
 // bucketDir 返回桶目录。

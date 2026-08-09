@@ -65,6 +65,16 @@ func run(addr, dataDir string) error {
 		return err
 	}
 	fmt.Println("分片上传完成")
+	_, _ = c.SetBucketVersioning(ctx, "demo-bucket", true)
+	_, _ = c.Put(ctx, "demo-bucket", "notes/versioned.txt",
+		strings.NewReader("v1"), filex.PutOptions{})
+	_, _ = c.Put(ctx, "demo-bucket", "notes/versioned.txt",
+		strings.NewReader("v2"), filex.PutOptions{})
+	versions, err := c.ListVersions(ctx, "demo-bucket", "notes/versioned.txt")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("版本化演示：共 %d 个版本\n", len(versions))
 	_ = srv.Close()
 	return nil
 }

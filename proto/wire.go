@@ -8,8 +8,11 @@ import (
 
 // BucketInfoJSON 是桶信息的线格式。
 type BucketInfoJSON struct {
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	Name       string    `json:"name"`
+	Versioning bool      `json:"versioning,omitempty"`
+	Quota      int64     `json:"quota,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ObjectInfoJSON 是对象信息的线格式。
@@ -20,6 +23,8 @@ type ObjectInfoJSON struct {
 	ETag        string            `json:"etag"`
 	ContentType string            `json:"content_type"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
+	VersionID   string            `json:"version_id,omitempty"`
+	Deleted     bool              `json:"deleted,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 }
@@ -61,14 +66,31 @@ type PartListJSON struct {
 	Parts []PartInfoJSON `json:"parts"`
 }
 
+// ObjectListJSON 是对象版本列表的线格式。
+type ObjectListJSON struct {
+	Objects []ObjectInfoJSON `json:"objects"`
+}
+
 // ToBucketJSON 转换 filex.BucketInfo 为线格式。
 func ToBucketJSON(b filex.BucketInfo) BucketInfoJSON {
-	return BucketInfoJSON{Name: b.Name, CreatedAt: b.CreatedAt}
+	return BucketInfoJSON{
+		Name:       b.Name,
+		Versioning: b.Versioning,
+		Quota:      b.Quota,
+		CreatedAt:  b.CreatedAt,
+		UpdatedAt:  b.UpdatedAt,
+	}
 }
 
 // ToFilex 转换线格式为 filex.BucketInfo。
 func (b BucketInfoJSON) ToFilex() filex.BucketInfo {
-	return filex.BucketInfo{Name: b.Name, CreatedAt: b.CreatedAt}
+	return filex.BucketInfo{
+		Name:       b.Name,
+		Versioning: b.Versioning,
+		Quota:      b.Quota,
+		CreatedAt:  b.CreatedAt,
+		UpdatedAt:  b.UpdatedAt,
+	}
 }
 
 // ToObjectJSON 转换 filex.ObjectInfo 为线格式。
@@ -80,6 +102,8 @@ func ToObjectJSON(o filex.ObjectInfo) ObjectInfoJSON {
 		ETag:        o.ETag,
 		ContentType: o.ContentType,
 		Metadata:    cloneMap(o.Metadata),
+		VersionID:   o.VersionID,
+		Deleted:     o.Deleted,
 		CreatedAt:   o.CreatedAt,
 		UpdatedAt:   o.UpdatedAt,
 	}
@@ -94,6 +118,8 @@ func (o ObjectInfoJSON) ToFilex() filex.ObjectInfo {
 		ETag:        o.ETag,
 		ContentType: o.ContentType,
 		Metadata:    cloneMap(o.Metadata),
+		VersionID:   o.VersionID,
+		Deleted:     o.Deleted,
 		CreatedAt:   o.CreatedAt,
 		UpdatedAt:   o.UpdatedAt,
 	}
@@ -161,6 +187,24 @@ func (l PartListJSON) ToFilex() []filex.PartInfo {
 	out := make([]filex.PartInfo, 0, len(l.Parts))
 	for _, p := range l.Parts {
 		out = append(out, p.ToFilex())
+	}
+	return out
+}
+
+// ToObjectListJSON 转换对象切片为线格式。
+func ToObjectListJSON(objs []filex.ObjectInfo) ObjectListJSON {
+	out := ObjectListJSON{Objects: make([]ObjectInfoJSON, 0, len(objs))}
+	for _, o := range objs {
+		out.Objects = append(out.Objects, ToObjectJSON(o))
+	}
+	return out
+}
+
+// ToFilex 转换线格式为对象切片。
+func (l ObjectListJSON) ToFilex() []filex.ObjectInfo {
+	out := make([]filex.ObjectInfo, 0, len(l.Objects))
+	for _, o := range l.Objects {
+		out = append(out, o.ToFilex())
 	}
 	return out
 }
