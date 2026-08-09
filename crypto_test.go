@@ -3,6 +3,7 @@ package filex
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -41,7 +42,7 @@ func TestEncryptionRoundTrip(t *testing.T) {
 	if bytes.Contains(raw, []byte("secret")) {
 		t.Fatal("数据文件不应包含明文")
 	}
-	if len(raw) != len("secret data")+16 {
+	if len(raw) != 16+len("secret data") {
 		t.Fatalf("密文长度不符：%d", len(raw))
 	}
 
@@ -72,7 +73,7 @@ func TestEncryptionRoundTrip(t *testing.T) {
 
 	// 篡改密文后校验失败
 	tampered := append([]byte(nil), raw...)
-	tampered[16] ^= 0xff // 翻转密文正文首字节（nonce 之后）
+	tampered[0] ^= 0xff // 翻转密文正文首字节
 	_ = os.WriteFile(s.objectDataPath("abc", "k"), tampered, 0o644)
 	obj2, err := s.Get(ctx, "abc", "k", GetOptions{Verify: true})
 	if err != nil {
@@ -83,6 +84,10 @@ func TestEncryptionRoundTrip(t *testing.T) {
 		t.Fatal("篡改密文校验应失败")
 	} else {
 		mustErrCode(t, err, CodeChecksumMismatch)
+	}
+	// 认证失败后再次读取应返回同一错误
+	if _, err := obj2.Read(make([]byte, 1)); err == nil {
+		t.Fatal("认证失败后再次读取应报错")
 	}
 }
 
@@ -271,16 +276,35 @@ func TestCompleteEncryptionWriteError(t *testing.T) {
 	}
 }
 
-func TestOpenObjectNonceReadError(t *testing.T) {
+func TestOpenObjectEncryptionMetaErrors(t *testing.T) {
 	s, _ := newStoreWithKey(t, testKey())
 	mustBucket(t, s, "abc")
 	ctx := context.Background()
 	_, _ = s.Put(ctx, "abc", "k", strings.NewReader("v"), PutOptions{})
-	_ = os.WriteFile(s.objectDataPath("abc", "k"), []byte("short"), 0o644)
+
+	metaPath := s.objectMetaPath("abc", "k")
+	meta, _ := readObjectMeta(s.fs, metaPath)
+	meta.Encryption.FileNonce = "zz"
+	data, _ := json.Marshal(meta)
+	_ = os.WriteFile(metaPath, data, 0o644)
 	if _, err := s.Get(ctx, "abc", "k", GetOptions{}); err == nil {
-		t.Fatal("加密随机数不足应报错")
+		t.Fatal("非法文件随机数应报错")
 	} else {
 		mustErrCode(t, err, CodeMetadataCorrupt)
+	}
+
+	// 密文截断：读取过程报错
+	meta.Encryption.FileNonce = strings.Repeat("0", 16)
+	data, _ = json.Marshal(meta)
+	_ = os.WriteFile(metaPath, data, 0o644)
+	_ = os.WriteFile(s.objectDataPath("abc", "k"), []byte("short"), 0o644)
+	obj, err := s.Get(ctx, "abc", "k", GetOptions{})
+	if err != nil {
+		t.Fatalf("打开截断密文应成功：%v", err)
+	}
+	defer obj.Close()
+	if _, err := io.ReadAll(obj); err == nil {
+		t.Fatal("截断密文读取应报错")
 	}
 }
 
@@ -306,5 +330,68 @@ func TestCompleteCipherGenerationError(t *testing.T) {
 	defer func() { cryptoRand = old }()
 	if _, err := s.CompleteMultipartUpload(ctx, "abc", "k", up.UploadID); err == nil {
 		t.Fatal("加密上下文生成失败应报错")
+	}
+}
+
+func TestGCMChunkBoundaries(t *testing.T) {
+	s, _ := newStoreWithKey(t, testKey())
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	big := strings.Repeat("x", encryptionChunkSize*2+123)
+	_, err := s.Put(ctx, "abc", "big", strings.NewReader(big), PutOptions{})
+	if err != nil {
+		t.Fatalf("多块加密写入失败：%v", err)
+	}
+	obj, err := s.Get(ctx, "abc", "big", GetOptions{Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(obj)
+	_ = obj.Close()
+	if err != nil || string(data) != big {
+		t.Fatalf("多块解密不符：%d 字节, %v", len(data), err)
+	}
+	// 空对象
+	if _, err := s.Put(ctx, "abc", "empty", strings.NewReader(""), PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	obj2, err := s.Get(ctx, "abc", "empty", GetOptions{Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data2, _ := io.ReadAll(obj2)
+	_ = obj2.Close()
+	if len(data2) != 0 {
+		t.Fatalf("空对象解密不符：%d", len(data2))
+	}
+	// 恰好整块大小：Close 时不再追加空块
+	exact := strings.Repeat("y", encryptionChunkSize*2)
+	_, err = s.Put(ctx, "abc", "exact", strings.NewReader(exact), PutOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	obj3, err := s.Get(ctx, "abc", "exact", GetOptions{Verify: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data3, _ := io.ReadAll(obj3)
+	_ = obj3.Close()
+	if string(data3) != exact {
+		t.Fatalf("整块对象解密不符：%d", len(data3))
+	}
+}
+
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("写入失败") }
+
+func TestGCMChunkWriterFlushError(t *testing.T) {
+	c, err := newObjectCipher(testKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := c.newGCMWriter(failWriter{})
+	if _, err := w.Write(make([]byte, encryptionChunkSize+1)); err == nil {
+		t.Fatal("整块冲刷失败应报错")
 	}
 }

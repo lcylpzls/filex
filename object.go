@@ -89,12 +89,10 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	}()
 
 	var dst io.Writer = f
+	var gcmWriter *gcmChunkWriter
 	if cipherCtx != nil {
-		if _, err := f.Write(cipherCtx.dataNonce); err != nil {
-			s.metrics.IncError(bucket, string(CodeStorageFailed))
-			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入加密随机数失败")
-		}
-		dst = cipherCtx.newCTRWriter(f)
+		gcmWriter = cipherCtx.newGCMWriter(f)
+		dst = gcmWriter
 	}
 	hasher := sha256.New()
 	limited := io.LimitReader(newContextReader(ctx, r), s.cfg.MaxObjectSize+1)
@@ -102,6 +100,12 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	if err != nil {
 		s.metrics.IncError(bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, storageErr(err, "写入对象内容失败")
+	}
+	if gcmWriter != nil {
+		if err := gcmWriter.Close(); err != nil {
+			s.metrics.IncError(bucket, string(CodeStorageFailed))
+			return ObjectInfo{}, storageErr(err, "冲刷加密块失败")
+		}
 	}
 	if size > s.cfg.MaxObjectSize {
 		return ObjectInfo{}, newCodef(CodeObjectTooLarge, "对象超过 %d 字节上限", s.cfg.MaxObjectSize)
@@ -252,11 +256,11 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 	}
 	var rc io.ReadCloser
 	if meta.Encryption != nil {
-		nonce := make([]byte, 16)
-		if _, err := io.ReadFull(f, nonce); err != nil {
+		fileNonce, err := hex.DecodeString(meta.Encryption.FileNonce)
+		if err != nil {
 			_ = f.Close()
 			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
-			return nil, newCode(CodeMetadataCorrupt, "读取加密随机数失败")
+			return nil, newCode(CodeMetadataCorrupt, "加密文件随机数格式非法")
 		}
 		dek, err := unwrapObjectKey(s.cfg.EncryptionKey, *meta.Encryption)
 		if err != nil {
@@ -265,8 +269,9 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 			return nil, err
 		}
 		block, _ := aes.NewCipher(dek)
+		gcm, _ := cipher.NewGCM(block)
 		base := &closeReader{
-			Reader: io.LimitReader(cipher.StreamReader{S: cipher.NewCTR(block, nonce), R: f}, meta.Size),
+			Reader: newGCMChunkReader(f, gcm, fileNonce, meta.Size),
 			closer: f,
 		}
 		if opts.Verify {

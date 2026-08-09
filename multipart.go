@@ -333,11 +333,10 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		}
 	}()
 	var dst io.Writer = f
+	var gcmWriter *gcmChunkWriter
 	if cipherCtx != nil {
-		if _, err := f.Write(cipherCtx.dataNonce); err != nil {
-			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入加密随机数失败")
-		}
-		dst = cipherCtx.newCTRWriter(f)
+		gcmWriter = cipherCtx.newGCMWriter(f)
+		dst = gcmWriter
 	}
 	hasher := sha256.New()
 	var total int64
@@ -365,6 +364,11 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 	}
 	if total > s.cfg.MaxObjectSize {
 		return ObjectInfo{}, newCodef(CodeObjectTooLarge, "合并对象超过 %d 字节上限", s.cfg.MaxObjectSize)
+	}
+	if gcmWriter != nil {
+		if err := gcmWriter.Close(); err != nil {
+			return ObjectInfo{}, storageErr(err, "冲刷加密块失败")
+		}
 	}
 	if !s.cfg.DisableSync {
 		if err := s.fs.SyncFile(f); err != nil {
