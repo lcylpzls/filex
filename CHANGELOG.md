@@ -1,5 +1,19 @@
 # 更新日志
 
+## [v0.13.0] - 2026-08-10
+
+### 改进
+
+- 客户端自动设置 `Content-Length`（Len / Seeker 探测），服务端可提前
+  感知长度；
+- 新增并发读写基准（BenchmarkPutConcurrent / BenchmarkGetConcurrent）；
+- BENCHMARKS.md 补充并发数据。
+
+### 质量
+
+- 四包覆盖率保持 100%；race（全平台）/ vet / staticcheck / fuzz /
+  govulncheck 全绿。
+
 ## [v0.12.0] - 2026-08-10
 
 ### 新增

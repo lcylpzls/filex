@@ -125,11 +125,32 @@ func (c *Client) Put(ctx context.Context, bucket, key string, r io.Reader, opts 
 		b, _ := json.Marshal(opts.Metadata)
 		hdr.Set(proto.HeaderMetadata, string(b))
 	}
+	setContentLength(hdr, r)
 	var out proto.ObjectInfoJSON
 	if err := c.doJSON(ctx, http.MethodPut, c.objectPath(bucket, key), r, hdr, &out); err != nil {
 		return filex.ObjectInfo{}, err
 	}
 	return out.ToFilex(), nil
+}
+
+// setContentLength 在可廉价探测长度时设置 Content-Length。
+func setContentLength(hdr http.Header, r io.Reader) {
+	if lr, ok := r.(interface{ Len() int }); ok {
+		hdr.Set("Content-Length", strconv.Itoa(lr.Len()))
+		return
+	}
+	if seeker, ok := r.(io.Seeker); ok {
+		cur, err := seeker.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return
+		}
+		end, err := seeker.Seek(0, io.SeekEnd)
+		if err != nil {
+			return
+		}
+		_, _ = seeker.Seek(cur, io.SeekStart)
+		hdr.Set("Content-Length", strconv.FormatInt(end-cur, 10))
+	}
 }
 
 // Get 读取对象；返回流式内容，调用方负责 Close。
