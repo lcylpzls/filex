@@ -13,9 +13,6 @@ type contextReader struct {
 }
 
 func newContextReader(ctx context.Context, r io.Reader) io.Reader {
-	if ctx == nil {
-		return r
-	}
 	return &contextReader{ctx: ctx, r: r}
 }
 

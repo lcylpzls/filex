@@ -130,14 +130,6 @@ func TestContextCancellation(t *testing.T) {
 	}
 }
 
-func TestContextReaderNilCtx(t *testing.T) {
-	r := newContextReader(nil, strings.NewReader("v"))
-	data := make([]byte, 1)
-	n, err := r.Read(data)
-	if err != nil || n != 1 || data[0] != 'v' {
-		t.Fatalf("nil 上下文应透传读取器：%d, %v", n, err)
-	}
-}
 
 func TestVerifyAllErrors(t *testing.T) {
 	s, _ := newStore(t)
