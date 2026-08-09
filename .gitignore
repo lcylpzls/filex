@@ -1,0 +1,20 @@
+# 测试产物
+coverage.out
+coverage
+cover.html
+*.test
+*.prof
+
+# 构建产物
+bin/
+dist/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 本地存储数据
+/data/
+*.tmp

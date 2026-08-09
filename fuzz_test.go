@@ -1,0 +1,34 @@
+package filex
+
+import (
+	"strings"
+	"testing"
+)
+
+func FuzzValidateBucket(f *testing.F) {
+	for _, seed := range []string{"abc", "BAD", "ab", "-ab", "a-b", strings.Repeat("a", 64)} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, name string) {
+		_ = validateBucketName(name)
+	})
+}
+
+func FuzzValidateKey(f *testing.F) {
+	for _, seed := range []string{"a", "", ".", "..", strings.Repeat("k", 2048), "a\x00b"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, key string) {
+		_ = validateKey(key, defaultMaxKeyBytes)
+	})
+}
+
+func FuzzDecodeObjectMeta(f *testing.F) {
+	good := `{"key":"k","size":1,"sha256":"` + strings.Repeat("a", 64) + `"}`
+	for _, seed := range []string{good, `{`, `{"key":"k","size":-1}`, `{"key":"k","size":1,"sha256":"bad"}`} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = decodeObjectMeta(data)
+	})
+}

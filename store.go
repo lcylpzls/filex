@@ -1,0 +1,227 @@
+package filex
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/lcylpzls/errx"
+	"github.com/lcylpzls/logx"
+)
+
+// Store 是本地盘对象存储引擎。
+type Store struct {
+	cfg        Config
+	bucketsDir string
+	bucketMu   sync.RWMutex
+	locks      stripedLocks
+	fs         fsOps
+	log        Logger
+	metrics    Metrics
+}
+
+// New 创建 Store。
+func New(cfg Config) (*Store, error) {
+	if cfg.DataDir == "" {
+		return nil, newCode(CodeInvalidConfig, "数据目录不能为空")
+	}
+	if cfg.MaxObjectSize < 0 {
+		return nil, newCode(CodeInvalidConfig, "对象大小上限不能为负数")
+	}
+	if cfg.MaxKeyBytes < 0 {
+		return nil, newCode(CodeInvalidConfig, "键长度上限不能为负数")
+	}
+	if cfg.MaxObjectSize == 0 {
+		cfg.MaxObjectSize = defaultMaxObjectSize
+	}
+	if cfg.MaxKeyBytes == 0 {
+		cfg.MaxKeyBytes = defaultMaxKeyBytes
+	}
+	abs, err := filepath.Abs(cfg.DataDir)
+	if err != nil {
+		return nil, wrapCode(err, CodeInvalidConfig, "数据目录解析失败")
+	}
+	bucketsDir := filepath.Join(abs, "buckets")
+	if err := os.MkdirAll(bucketsDir, 0o755); err != nil {
+		return nil, wrapCode(err, CodeStorageFailed, "创建数据目录失败")
+	}
+	s := &Store{
+		cfg:        cfg,
+		bucketsDir: bucketsDir,
+		fs:         defaultFSOps,
+		log:        cfg.Logger,
+		metrics:    cfg.Metrics,
+	}
+	if s.metrics == nil {
+		s.metrics = nopMetrics{}
+	}
+	return s, nil
+}
+
+// Close 释放 Store 资源（当前无持有资源，保留接口兼容）。
+func (s *Store) Close() error {
+	return nil
+}
+
+// CreateBucket 创建桶。
+func (s *Store) CreateBucket(ctx context.Context, name string) (BucketInfo, error) {
+	if err := validateBucketName(name); err != nil {
+		return BucketInfo{}, err
+	}
+	s.bucketMu.Lock()
+	defer s.bucketMu.Unlock()
+
+	metaPath := s.bucketMetaPath(name)
+	if _, err := readBucketMeta(s.fs, metaPath); err == nil {
+		return BucketInfo{}, newCode(CodeBucketExists, "桶已存在")
+	} else if !os.IsNotExist(err) {
+		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "检查桶失败")
+	}
+
+	objectsDir := filepath.Join(s.bucketDir(name), "objects")
+	if err := s.fs.MkdirAll(objectsDir, 0o755); err != nil {
+		s.metrics.IncError(name, string(CodeStorageFailed))
+		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "创建桶目录失败")
+	}
+	meta := bucketMeta{Name: name, CreatedAt: time.Now().UTC()}
+	if err := s.writeJSONAtomic(metaPath, meta); err != nil {
+		s.metrics.IncError(name, string(CodeStorageFailed))
+		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "写入桶元数据失败")
+	}
+	s.metrics.Add(name, "create_bucket", 0)
+	s.logInfo("创建桶", logx.String("bucket", name))
+	return BucketInfo{Name: name, CreatedAt: meta.CreatedAt}, nil
+}
+
+// DeleteBucket 删除空桶；存在对象时返回 filex_bucket_not_empty。
+func (s *Store) DeleteBucket(ctx context.Context, name string) error {
+	if err := validateBucketName(name); err != nil {
+		return err
+	}
+	s.bucketMu.Lock()
+	defer s.bucketMu.Unlock()
+
+	if _, err := readBucketMeta(s.fs, s.bucketMetaPath(name)); os.IsNotExist(err) {
+		return newCode(CodeBucketNotFound, "桶不存在")
+	} else if err != nil {
+		s.metrics.IncError(name, string(CodeMetadataCorrupt))
+		return wrapCode(err, CodeMetadataCorrupt, "读取桶元数据失败")
+	}
+
+	entries, err := s.fs.ReadDir(s.objectsDir(name))
+	if err != nil && !os.IsNotExist(err) {
+		s.metrics.IncError(name, string(CodeStorageFailed))
+		return wrapCode(err, CodeStorageFailed, "扫描桶内容失败")
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			return newCode(CodeBucketNotEmpty, "桶非空")
+		}
+	}
+	if err := s.fs.RemoveAll(s.bucketDir(name)); err != nil {
+		s.metrics.IncError(name, string(CodeStorageFailed))
+		return wrapCode(err, CodeStorageFailed, "删除桶目录失败")
+	}
+	s.metrics.Add(name, "delete_bucket", 0)
+	s.logInfo("删除桶", logx.String("bucket", name))
+	return nil
+}
+
+// HeadBucket 读取桶元数据。
+func (s *Store) HeadBucket(ctx context.Context, name string) (BucketInfo, error) {
+	if err := validateBucketName(name); err != nil {
+		return BucketInfo{}, err
+	}
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	meta, err := s.ensureBucket(name)
+	if err != nil {
+		s.metrics.IncError(name, errxCode(err))
+		return BucketInfo{}, err
+	}
+	return BucketInfo{Name: meta.Name, CreatedAt: meta.CreatedAt}, nil
+}
+
+// ListBuckets 返回全部桶，按名称排序。
+func (s *Store) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	entries, err := s.fs.ReadDir(s.bucketsDir)
+	if err != nil {
+		return nil, wrapCode(err, CodeStorageFailed, "扫描桶目录失败")
+	}
+	result := make([]BucketInfo, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		meta, err := readBucketMeta(s.fs, s.bucketMetaPath(e.Name()))
+		if err != nil {
+			s.logWarn("跳过损坏的桶元数据", logx.String("bucket", e.Name()))
+			continue
+		}
+		result = append(result, BucketInfo{Name: meta.Name, CreatedAt: meta.CreatedAt})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result, nil
+}
+
+// bucketDir 返回桶目录。
+func (s *Store) bucketDir(name string) string {
+	return filepath.Join(s.bucketsDir, name)
+}
+
+// bucketMetaPath 返回桶元数据路径。
+func (s *Store) bucketMetaPath(name string) string {
+	return filepath.Join(s.bucketDir(name), "meta.json")
+}
+
+// objectsDir 返回对象目录。
+func (s *Store) objectsDir(name string) string {
+	return filepath.Join(s.bucketDir(name), "objects")
+}
+
+// objectDataPath 返回对象数据文件路径。
+func (s *Store) objectDataPath(bucket, key string) string {
+	return filepath.Join(s.objectsDir(bucket), hashKey(key)+".data")
+}
+
+// objectMetaPath 返回对象元数据文件路径。
+func (s *Store) objectMetaPath(bucket, key string) string {
+	return filepath.Join(s.objectsDir(bucket), hashKey(key)+".json")
+}
+
+// hashKey 计算键的 SHA256 十六进制，作为稳定的文件系统安全目录名。
+func hashKey(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Store) logInfo(msg string, fields ...logx.Field) {
+	if s.log != nil {
+		s.log.Info(msg, logx.Fields(fields...))
+	}
+}
+
+func (s *Store) logWarn(msg string, fields ...logx.Field) {
+	if s.log != nil {
+		s.log.Warn(msg, logx.Fields(fields...))
+	}
+}
+
+// errxCode 提取错误码字符串，供指标打点。
+func errxCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	if code, ok := errx.CodeOf(err); ok {
+		return string(code)
+	}
+	return "unknown"
+}

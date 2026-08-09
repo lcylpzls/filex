@@ -1,0 +1,412 @@
+package filex
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"hash"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/lcylpzls/errx"
+	"github.com/lcylpzls/logx"
+)
+
+// Put 写入对象。同一键并发写时以后完成者生效（原子 rename 保证完整）。
+func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts PutOptions) (ObjectInfo, error) {
+	if r == nil {
+		return ObjectInfo{}, newCode(CodeInvalidArgument, "内容读取器不能为空")
+	}
+	if err := validateBucketName(bucket); err != nil {
+		return ObjectInfo{}, err
+	}
+	if err := validateKey(key, s.cfg.MaxKeyBytes); err != nil {
+		return ObjectInfo{}, err
+	}
+	if err := validateMetadata(opts.Metadata); err != nil {
+		return ObjectInfo{}, err
+	}
+	if opts.ExpectedSHA256 != "" && !isSHA256Hex(opts.ExpectedSHA256) {
+		return ObjectInfo{}, newCode(CodeInvalidArgument, "期望 SHA256 必须是 64 位十六进制")
+	}
+
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	if _, err := s.ensureBucket(bucket); err != nil {
+		s.metrics.IncError(bucket, errxCode(err))
+		return ObjectInfo{}, err
+	}
+	unlock := s.locks.lock(bucket, key)
+	defer unlock()
+
+	dataPath := s.objectDataPath(bucket, key)
+	metaPath := s.objectMetaPath(bucket, key)
+	if oldMeta, err := readObjectMeta(s.fs, metaPath); err == nil && oldMeta.Key != key {
+		return ObjectInfo{}, newCode(CodeStorageFailed, "键哈希冲突，拒绝写入")
+	}
+
+	dir := filepath.Dir(dataPath)
+	if err := s.fs.MkdirAll(dir, 0o755); err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "创建对象目录失败")
+	}
+	f, err := s.fs.CreateTemp(dir, ".tmp-*.part")
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "创建临时文件失败")
+	}
+	tmp := f.Name()
+	cleanup := func() { _ = f.Close(); _ = s.fs.Remove(tmp) }
+	committed := false
+	defer func() {
+		if !committed {
+			cleanup()
+		}
+	}()
+
+	hasher := sha256.New()
+	limited := io.LimitReader(r, s.cfg.MaxObjectSize+1)
+	size, err := s.fs.WriteToFile(io.MultiWriter(f, hasher), limited)
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象内容失败")
+	}
+	if size > s.cfg.MaxObjectSize {
+		return ObjectInfo{}, newCodef(CodeObjectTooLarge, "对象超过 %d 字节上限", s.cfg.MaxObjectSize)
+	}
+	if !s.cfg.DisableSync {
+		if err := s.fs.SyncFile(f); err != nil {
+			s.metrics.IncError(bucket, string(CodeStorageFailed))
+			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "同步对象内容失败")
+		}
+	}
+	if err := s.fs.CloseFile(f); err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "关闭临时文件失败")
+	}
+	computed := hex.EncodeToString(hasher.Sum(nil))
+	if opts.ExpectedSHA256 != "" && !strings.EqualFold(computed, opts.ExpectedSHA256) {
+		s.metrics.IncError(bucket, string(CodeChecksumMismatch))
+		return ObjectInfo{}, newCode(CodeChecksumMismatch, "内容 SHA256 与期望值不符")
+	}
+	if err := s.fs.Rename(tmp, dataPath); err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "提交对象内容失败")
+	}
+	committed = true
+
+	now := time.Now().UTC()
+	meta := objectMeta{
+		Key:         key,
+		Size:        size,
+		SHA256:      computed,
+		ContentType: opts.ContentType,
+		Metadata:    cloneMap(opts.Metadata),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if meta.ContentType == "" {
+		meta.ContentType = "application/octet-stream"
+	}
+	if err := s.writeJSONAtomic(metaPath, meta); err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象元数据失败")
+	}
+	s.syncDir(dir)
+	s.metrics.Add(bucket, "put", size)
+	s.logInfo("写入对象",
+		logx.String("bucket", bucket),
+		logx.String("key", key),
+		logx.String("etag", computed),
+	)
+	return objectInfoFromMeta(bucket, meta), nil
+}
+
+// Get 读取对象；opts.Verify 开启时 EOF 复验 SHA256。
+func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (*Object, error) {
+	if err := validateBucketName(bucket); err != nil {
+		return nil, err
+	}
+	if err := validateKey(key, s.cfg.MaxKeyBytes); err != nil {
+		return nil, err
+	}
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	if _, err := s.ensureBucket(bucket); err != nil {
+		s.metrics.IncError(bucket, errxCode(err))
+		return nil, err
+	}
+	unlock := s.locks.rlock(bucket, key)
+	defer unlock()
+
+	meta, err := readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
+	if os.IsNotExist(err) {
+		s.metrics.IncError(bucket, string(CodeObjectNotFound))
+		return nil, newCode(CodeObjectNotFound, "对象不存在")
+	}
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+		return nil, wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
+	}
+	dataPath := s.objectDataPath(bucket, key)
+	info, err := s.fs.Stat(dataPath)
+	if os.IsNotExist(err) {
+		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+		return nil, newCode(CodeMetadataCorrupt, "对象数据文件缺失")
+	}
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return nil, wrapCode(err, CodeStorageFailed, "检查对象数据失败")
+	}
+	if info.Size() != meta.Size {
+		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+		return nil, newCodef(CodeMetadataCorrupt, "对象大小不一致：期望 %d，实际 %d", meta.Size, info.Size())
+	}
+	f, err := s.fs.OpenFile(dataPath, os.O_RDONLY, 0)
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return nil, wrapCode(err, CodeStorageFailed, "打开对象数据失败")
+	}
+	var rc io.ReadCloser = f
+	if opts.Verify {
+		rc = newVerifyingReader(f, meta.SHA256)
+	}
+	s.metrics.Add(bucket, "get", meta.Size)
+	s.logInfo("读取对象",
+		logx.String("bucket", bucket),
+		logx.String("key", key),
+		logx.String("etag", meta.SHA256),
+	)
+	return &Object{Info: objectInfoFromMeta(bucket, *meta), ReadCloser: rc}, nil
+}
+
+// Head 读取对象元数据，不打开内容。
+func (s *Store) Head(ctx context.Context, bucket, key string) (ObjectInfo, error) {
+	if err := validateBucketName(bucket); err != nil {
+		return ObjectInfo{}, err
+	}
+	if err := validateKey(key, s.cfg.MaxKeyBytes); err != nil {
+		return ObjectInfo{}, err
+	}
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	if _, err := s.ensureBucket(bucket); err != nil {
+		s.metrics.IncError(bucket, errxCode(err))
+		return ObjectInfo{}, err
+	}
+	unlock := s.locks.rlock(bucket, key)
+	defer unlock()
+	meta, err := readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
+	if os.IsNotExist(err) {
+		s.metrics.IncError(bucket, string(CodeObjectNotFound))
+		return ObjectInfo{}, newCode(CodeObjectNotFound, "对象不存在")
+	}
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+		return ObjectInfo{}, wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
+	}
+	s.logInfo("查询对象头",
+		logx.String("bucket", bucket),
+		logx.String("key", key),
+	)
+	return objectInfoFromMeta(bucket, *meta), nil
+}
+
+// Delete 删除对象。元数据先删，数据删除失败时交由孤儿清理。
+func (s *Store) Delete(ctx context.Context, bucket, key string) error {
+	if err := validateBucketName(bucket); err != nil {
+		return err
+	}
+	if err := validateKey(key, s.cfg.MaxKeyBytes); err != nil {
+		return err
+	}
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	if _, err := s.ensureBucket(bucket); err != nil {
+		s.metrics.IncError(bucket, errxCode(err))
+		return err
+	}
+	unlock := s.locks.lock(bucket, key)
+	defer unlock()
+
+	metaPath := s.objectMetaPath(bucket, key)
+	meta, err := readObjectMeta(s.fs, metaPath)
+	if os.IsNotExist(err) {
+		s.metrics.IncError(bucket, string(CodeObjectNotFound))
+		return newCode(CodeObjectNotFound, "对象不存在")
+	}
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+		return wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
+	}
+	if err := s.fs.Remove(metaPath); err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return wrapCode(err, CodeStorageFailed, "删除对象元数据失败")
+	}
+	if err := s.fs.Remove(s.objectDataPath(bucket, key)); err != nil && !os.IsNotExist(err) {
+		s.logWarn("对象数据删除失败，等待孤儿清理",
+			logx.String("bucket", bucket),
+			logx.String("key", key),
+		)
+	}
+	s.metrics.Add(bucket, "delete", meta.Size)
+	s.logInfo("删除对象",
+		logx.String("bucket", bucket),
+		logx.String("key", key),
+	)
+	return nil
+}
+
+// List 枚举对象，支持 prefix / marker / limit / delimiter。
+func (s *Store) List(ctx context.Context, bucket string, opts ListOptions) (ListResult, error) {
+	if err := validateBucketName(bucket); err != nil {
+		return ListResult{}, err
+	}
+	limit := opts.Limit
+	if limit == 0 {
+		limit = defaultListLimit
+	}
+	if limit < 0 || limit > maxListLimit {
+		return ListResult{}, newCodef(CodeInvalidArgument, "limit 必须在 1-%d 之间", maxListLimit)
+	}
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	if _, err := s.ensureBucket(bucket); err != nil {
+		s.metrics.IncError(bucket, errxCode(err))
+		return ListResult{}, err
+	}
+
+	entries, err := s.fs.ReadDir(s.objectsDir(bucket))
+	if os.IsNotExist(err) {
+		return ListResult{}, nil
+	}
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ListResult{}, wrapCode(err, CodeStorageFailed, "扫描对象目录失败")
+	}
+	metas := make([]objectMeta, 0, len(entries))
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		meta, err := readObjectMeta(s.fs, filepath.Join(s.objectsDir(bucket), e.Name()))
+		if err != nil {
+			s.logWarn("跳过损坏的对象元数据",
+				logx.String("bucket", bucket),
+				logx.String("file", e.Name()),
+			)
+			continue
+		}
+		metas = append(metas, *meta)
+	}
+	sort.Slice(metas, func(i, j int) bool { return metas[i].Key < metas[j].Key })
+
+	result := ListResult{}
+	seen := map[string]struct{}{}
+	count := 0
+	lastKey := ""
+	for _, m := range metas {
+		if m.Key <= opts.Marker {
+			continue
+		}
+		if !strings.HasPrefix(m.Key, opts.Prefix) {
+			continue
+		}
+		lastKey = m.Key
+		if opts.Delimiter != "" {
+			rest := m.Key[len(opts.Prefix):]
+			if idx := strings.Index(rest, opts.Delimiter); idx >= 0 {
+				cp := opts.Prefix + rest[:idx+len(opts.Delimiter)]
+				if _, ok := seen[cp]; ok {
+					continue
+				}
+				seen[cp] = struct{}{}
+				result.CommonPrefixes = append(result.CommonPrefixes, cp)
+				count++
+				if count >= limit {
+					result.IsTruncated = true
+					result.NextMarker = lastKey
+					return result, nil
+				}
+				continue
+			}
+		}
+		result.Objects = append(result.Objects, objectInfoFromMeta(bucket, m))
+		count++
+		if count >= limit {
+			result.IsTruncated = true
+			result.NextMarker = lastKey
+			return result, nil
+		}
+	}
+	s.logInfo("枚举对象",
+		logx.String("bucket", bucket),
+		logx.String("prefix", opts.Prefix),
+	)
+	return result, nil
+}
+
+// objectInfoFromMeta 将对象元数据转换为公开快照。
+func objectInfoFromMeta(bucket string, m objectMeta) ObjectInfo {
+	ct := m.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	return ObjectInfo{
+		Bucket:      bucket,
+		Key:         m.Key,
+		Size:        m.Size,
+		ETag:        m.SHA256,
+		ContentType: ct,
+		Metadata:    cloneMap(m.Metadata),
+		CreatedAt:   m.CreatedAt,
+		UpdatedAt:   m.UpdatedAt,
+	}
+}
+
+func cloneMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// verifyingReader 在 EOF 时校验内容 SHA256。
+type verifyingReader struct {
+	r        io.Reader
+	h        hash.Hash
+	expected string
+}
+
+func newVerifyingReader(r io.Reader, expected string) *verifyingReader {
+	return &verifyingReader{r: r, h: sha256.New(), expected: expected}
+}
+
+func (v *verifyingReader) Read(p []byte) (int, error) {
+	n, err := v.r.Read(p)
+	if n > 0 {
+		_, _ = v.h.Write(p[:n])
+	}
+	if err == io.EOF {
+		got := hex.EncodeToString(v.h.Sum(nil))
+		if !strings.EqualFold(got, v.expected) {
+			return n, errx.NewCode(CodeChecksumMismatch, "读取内容 SHA256 与元数据不符")
+		}
+	}
+	return n, err
+}
+
+func (v *verifyingReader) Close() error {
+	if c, ok := v.r.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
