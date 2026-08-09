@@ -113,12 +113,14 @@ jobs:
           go-version: '1.26.x'
           check-latest: true
 
-      - name: Fuzz short run (10s per target)
+      - name: Fuzz short run (5s per target)
         run: |
-          go test -run '^$' -fuzz '^FuzzValidateBucket$' -fuzztime=10s .
-          go test -run '^$' -fuzz '^FuzzValidateKey$' -fuzztime=10s .
-          go test -run '^$' -fuzz '^FuzzDecodeObjectMeta$' -fuzztime=10s .
-          cd proto && go test -run '^$' -fuzz '^FuzzParseRange$' -fuzztime=10s .
+          go test -run '^$' -fuzz '^FuzzValidateBucket$' -fuzztime=5s .
+          go test -run '^$' -fuzz '^FuzzValidateKey$' -fuzztime=5s .
+          go test -run '^$' -fuzz '^FuzzDecodeObjectMeta$' -fuzztime=5s .
+          go test -run '^$' -fuzz '^FuzzDecodeUploadMeta$' -fuzztime=5s .
+          go test -run '^$' -fuzz '^FuzzDecodePartMeta$' -fuzztime=5s .
+          cd proto && go test -run '^$' -fuzz '^FuzzParseRange$' -fuzztime=5s .
 
   vulncheck:
     runs-on: ubuntu-latest
