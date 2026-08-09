@@ -32,5 +32,16 @@
 ## 1.0 候选标准
 
 - API 已冻结（见 [api-v0.15.0.md](api-v0.15.0.md)）；
-- 全部规划与自检打磨完成（v0.1.0 → v0.18.0）；
+- 全部规划与自检打磨完成（v0.1.0 → v0.19.0）；
 - 无已知 P0/P1 问题；发布前仅需用户确认。
+
+## 发布检查单（v1.0.0）
+
+- [x] 四包语句覆盖率 100%；
+- [x] 根包与示例 `-shuffle=on -count=3` 通过；
+- [x] 全平台 race / vet / staticcheck / fuzz / govulncheck 通过；
+- [x] HTTP/3 端到端示例协商真实 `HTTP/3.0`；
+- [x] README / DESIGN / ARCHITECTURE / API / ERRORS / SECURITY /
+      OPERATIONS / BENCHMARKS 齐备；
+- [x] 备份与加密主密钥管理有书面流程；
+- [ ] 用户确认发布 v1.0.0（唯一未勾选项）。

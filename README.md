@@ -70,8 +70,9 @@ func main() {
   HEAD Content-Length。
 - v0.17.0：静态加密升级为分块 AES-256-GCM（认证加密）。
 - v0.18.0：长任务上下文取消贯穿、Release 乱序测试、客户端 godoc 示例。
+- v0.19.0：稳定性收口（乱序×3、全量门禁、发布检查单）。
 
-> 当前状态：**1.0 候选**。路线图与自检打磨全部完成；
+> 当前状态：**1.0 候选（v0.19.0）**。路线图与自检打磨全部完成；
 > v1.0.0 是否发布由用户决定。
 
 详细规划见 [docs/roadmap.md](docs/roadmap.md)，设计见 [docs/design.md](docs/design.md)。
