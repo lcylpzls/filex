@@ -54,6 +54,8 @@ func main() {
   Bearer/HMAC/回调鉴权、防重放与审计。
 - v0.6.0：生命周期（过期清理/版本收敛）、孤儿巡检、健康检查、
   服务端请求指标与基准。
+- v0.7.0：HTTP/3 端到端示例（webx + httpx）、错误码手册与 API 冻结快照；
+  路线图完成，进入自检打磨阶段。
 
 详细规划见 [docs/roadmap.md](docs/roadmap.md)，设计见 [docs/design.md](docs/design.md)。
 
@@ -73,7 +75,9 @@ filex/
 ├── client/                # 协议客户端（可注入 httpx）
 ├── examples/
 │   ├── basic/             # 引擎基础用法（独立模块）
-│   └── protocol/          # 服务端 + 客户端端到端（独立模块）
+│   ├── protocol/          # 服务端 + 客户端端到端（独立模块）
+│   └── http3/             # webx + httpx HTTP/3 端到端（独立模块）
+├── ERRORS.md              # 错误码手册
 ├── BENCHMARKS.md          # 基准测试方法与结果
 └── README.md
 ```

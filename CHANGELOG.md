@@ -1,5 +1,20 @@
 # 更新日志
 
+## [v0.7.0] - 2026-08-10
+
+### 新增
+
+- HTTP/3 端到端示例：webx 服务端 + httpx 客户端承载 filex 协议，
+  测试断言真实协商 `HTTP/3.0`；
+- `ERRORS.md` 错误码手册定稿；
+- `docs/api-v0.7.0.md` API 冻结快照；
+- 路线图 v0.1.0 → v0.7.0 全部完成。
+
+### 质量
+
+- 四包覆盖率均 100%；race / vet / staticcheck / fuzz / govulncheck 全绿；
+- 三平台 CI + Linux 多发行版矩阵 + HTTP/3 示例全绿。
+
 ## [v0.6.0] - 2026-08-10
 
 ### 新增

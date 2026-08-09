@@ -74,6 +74,9 @@
 - README / SECURITY / ERRORS / LICENSE 定稿；
 - API 冻结与文档快照；roadmap 收口。
 
+> 状态：**已发布**（v0.7.0，2026-08-10）。HTTP/3 端到端示例、
+> ERRORS.md 与 API 冻结快照落地，规划文档全部完成。
+
 ## v0.8.0+ — 自检打磨
 
 roadmap 完成后继续自我检查、修复边界、补充测试与文档，
