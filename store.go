@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-	"time"
 	"sync/atomic"
+	"time"
 
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/logx"
