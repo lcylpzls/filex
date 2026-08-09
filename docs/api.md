@@ -230,6 +230,8 @@ PUT    /filex/v1/buckets/{bucket}/objects/{key}?move=1&source-bucket=..&source-k
 - HMAC：`X-Filex-Timestamp`（Unix 秒）+ `X-Filex-Signature`；
 - 签名载荷：`<METHOD>\n<路径与查询>\n<时间戳>`，HMAC-SHA256 十六进制；
 - 时间戳窗口 ±5 分钟，防重放。
+- 条件请求：`If-None-Match` 命中返回 `filex_not_modified`（304）；
+  `If-Match` 不匹配返回 `filex_precondition_failed`（412）。
 
 ## 4.3 生命周期与可观测 API（v0.6.0）
 

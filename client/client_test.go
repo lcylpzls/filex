@@ -116,6 +116,8 @@ func TestClientLifecycle(t *testing.T) {
 
 	if _, err := c.Get(ctx, "abc", "dir/a.txt", filex.GetOptions{IfMatch: `"nope"`}); err == nil {
 		t.Fatal("If-Match 不命中应报错")
+	} else if !errx.Is(err, filex.CodePreconditionFailed) {
+		t.Fatalf("错误码不符：%v", err)
 	}
 
 	if err := c.Delete(ctx, "abc", "dir/a.txt"); err != nil {
@@ -408,6 +410,8 @@ func TestClientGetConditional(t *testing.T) {
 	if err == nil {
 		_ = obj.Close()
 		t.Fatal("If-None-Match 命中应返回错误")
+	} else if !errx.Is(err, filex.CodeNotModified) {
+		t.Fatalf("错误码不符：%v", err)
 	}
 }
 

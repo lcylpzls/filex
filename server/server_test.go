@@ -328,21 +328,15 @@ func TestServerConditionalHelpers(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("If-Match", `"nope"`)
-	if checkConditional(rec, req, `"real"`) {
+	if ok, _ := checkConditional(rec, req, "real"); ok {
 		t.Fatal("If-Match 不命中应返回 false")
-	}
-	if rec.Code != http.StatusPreconditionFailed {
-		t.Fatalf("状态码不符：%d", rec.Code)
 	}
 
 	rec2 := httptest.NewRecorder()
 	req2 := httptest.NewRequest("GET", "/", nil)
 	req2.Header.Set("If-None-Match", `"yes"`)
-	if checkConditional(rec2, req2, "yes") {
+	if ok, _ := checkConditional(rec2, req2, "yes"); ok {
 		t.Fatal("If-None-Match 命中应返回 false")
-	}
-	if rec2.Code != http.StatusNotModified {
-		t.Fatalf("状态码不符：%d", rec2.Code)
 	}
 }
 

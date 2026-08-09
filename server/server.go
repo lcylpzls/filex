@@ -465,7 +465,13 @@ func (h *handler) handleGetObject(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, requestID(r), err)
 		return
 	}
-	if !checkConditional(w, r, info.ETag) {
+	ok, condErr := checkConditional(w, r, info.ETag)
+	if !ok {
+		if errx.Is(condErr, filex.CodeNotModified) {
+			w.WriteHeader(http.StatusNotModified)
+		} else {
+			w.WriteHeader(http.StatusPreconditionFailed)
+		}
 		return
 	}
 	rng, hasRange, err := proto.ParseRange(r.Header.Get("Range"), info.Size)
@@ -588,20 +594,18 @@ func quoteETag(etag string) string {
 	return `"` + etag + `"`
 }
 
-func checkConditional(w http.ResponseWriter, r *http.Request, etag string) bool {
+func checkConditional(w http.ResponseWriter, r *http.Request, etag string) (bool, error) {
 	if im := r.Header.Get("If-Match"); im != "" {
 		if !etagListMatch(im, etag) {
-			w.WriteHeader(http.StatusPreconditionFailed)
-			return false
+			return false, errx.NewCode(filex.CodePreconditionFailed, "If-Match 前置条件不满足")
 		}
 	}
 	if inm := r.Header.Get("If-None-Match"); inm != "" {
 		if etagListMatch(inm, etag) {
-			w.WriteHeader(http.StatusNotModified)
-			return false
+			return false, errx.NewCode(filex.CodeNotModified, "对象未修改")
 		}
 	}
-	return true
+	return true, nil
 }
 
 func etagListMatch(header, etag string) bool {

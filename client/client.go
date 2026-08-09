@@ -518,6 +518,12 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body io.Reader
 }
 
 func decodeError(resp *http.Response) error {
+	if resp.StatusCode == http.StatusNotModified {
+		return errx.NewCode(filex.CodeNotModified, "对象未修改")
+	}
+	if resp.StatusCode == http.StatusPreconditionFailed {
+		return errx.NewCode(filex.CodePreconditionFailed, "前置条件不满足")
+	}
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var body proto.ErrorBody
 	if err := json.Unmarshal(data, &body); err != nil || body.Code == "" {

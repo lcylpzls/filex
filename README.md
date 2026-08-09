@@ -57,6 +57,7 @@ func main() {
 - v0.7.0：HTTP/3 端到端示例（webx + httpx）、错误码手册与 API 冻结快照；
   路线图完成，进入自检打磨阶段。
 - v0.8.0：自检修复（孤儿巡检保护活动分片会话）、架构文档刷新。
+- v0.9.0：条件请求错误码明确化（304/412 语义映射）。
 
 详细规划见 [docs/roadmap.md](docs/roadmap.md)，设计见 [docs/design.md](docs/design.md)。
 

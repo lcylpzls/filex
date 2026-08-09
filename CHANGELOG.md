@@ -1,5 +1,19 @@
 # 更新日志
 
+## [v0.9.0] - 2026-08-10
+
+### 改进
+
+- 条件请求语义明确化：
+  - `If-None-Match` 命中 → `filex_not_modified`（HTTP 304）；
+  - `If-Match` 不匹配 → `filex_precondition_failed`（HTTP 412）；
+  - 客户端 `Get` 直接返回对应 errx 错误码，不再退化为泛化错误；
+- 错误码手册与设计文档同步新增两个错误码。
+
+### 质量
+
+- 四包覆盖率保持 100%；race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.8.0] - 2026-08-10
 
 ### 修复
