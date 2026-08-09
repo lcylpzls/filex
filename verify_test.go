@@ -130,7 +130,6 @@ func TestContextCancellation(t *testing.T) {
 	}
 }
 
-
 func TestVerifyAllErrors(t *testing.T) {
 	s, _ := newStore(t)
 	mustBucket(t, s, "abc")
