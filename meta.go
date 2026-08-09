@@ -28,6 +28,7 @@ type objectMeta struct {
 	Metadata    map[string]string `json:"metadata,omitempty"`
 	VersionID   string            `json:"version_id,omitempty"`
 	Deleted     bool              `json:"deleted,omitempty"`
+	Encryption  *encryptionMeta   `json:"encryption,omitempty"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 }

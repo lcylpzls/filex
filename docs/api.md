@@ -20,7 +20,9 @@ type Config struct {
     DataDir        string        // 数据根目录（必填）
     MaxObjectSize  int64         // 对象大小上限，默认 4 GiB
     MaxKeyBytes    int           // 键最大字节数，默认 1024
+    MaxParts       int           // 分片部件数量上限，默认 10000
     DisableSync    bool          // true 时跳过 fsync，默认 false（即默认 fsync）
+    EncryptionKey  []byte        // 32 字节主密钥；设置后启用静态加密
     Logger         logx.Logger   // 可选结构化日志
     Metrics        Metrics       // 可选指标
 }
@@ -114,10 +116,12 @@ type ByteRange struct {
 
 ```go
 type HandlerConfig struct {
-    Store   *filex.Store
-    Logger  logx.Logger
-    Metrics filex.Metrics
-    // v0.5.0：Authenticator 鉴权回调
+    Store         Store                       // *filex.Store 天然满足
+    Logger        logx.Logger                 // 可选结构化日志
+    Token         string                  // Bearer 令牌（可选）
+    Authenticate  func(r *http.Request) error // 鉴权回调（可选）
+    HMACSecret    []byte                  // HMAC 签名密钥（可选）
+    Audit         func(AuditEvent)        // 审计回调（可选）
 }
 
 func NewHandler(cfg HandlerConfig) http.Handler
@@ -130,6 +134,7 @@ func NewHandler(cfg HandlerConfig) http.Handler
 ```go
 type Client struct { ... }
 func New(baseURL string, opts ...Option) (*Client, error)
+// Option：WithHTTPClient / WithToken / WithHMAC
 func (c *Client) Put(ctx context.Context, bucket, key string,
     r io.Reader, opts filex.PutOptions) (filex.ObjectInfo, error)
 func (c *Client) Get(ctx context.Context, bucket, key string,
@@ -218,3 +223,10 @@ PUT    /filex/v1/buckets/{bucket}/objects/{key}?restore=1&version-id=..
 PUT    /filex/v1/buckets/{bucket}/objects/{key}?copy=1&source-bucket=..&source-key=..
 PUT    /filex/v1/buckets/{bucket}/objects/{key}?move=1&source-bucket=..&source-key=..
 ```
+
+鉴权约定（v0.5.0）：
+
+- Bearer：`Authorization: Bearer <Token>`；
+- HMAC：`X-Filex-Timestamp`（Unix 秒）+ `X-Filex-Signature`；
+- 签名载荷：`<METHOD>\n<路径与查询>\n<时间戳>`，HMAC-SHA256 十六进制；
+- 时间戳窗口 ±5 分钟，防重放。

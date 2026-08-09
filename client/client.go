@@ -4,6 +4,9 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +30,7 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	token      string
+	hmacSecret []byte
 }
 
 // Option 是客户端配置项。
@@ -40,6 +44,11 @@ func WithHTTPClient(hc *http.Client) Option {
 // WithToken 设置 Bearer 令牌。
 func WithToken(token string) Option {
 	return func(c *Client) { c.token = token }
+}
+
+// WithHMAC 启用请求签名（服务端需配置相同密钥）。
+func WithHMAC(secret []byte) Option {
+	return func(c *Client) { c.hmacSecret = secret }
 }
 
 // New 创建客户端。
@@ -472,6 +481,15 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if c.token != "" || len(c.hmacSecret) > 0 {
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
+		req.Header.Set("X-Filex-Timestamp", ts)
+		if len(c.hmacSecret) > 0 {
+			mac := hmac.New(sha256.New, c.hmacSecret)
+			_, _ = fmt.Fprintf(mac, "%s\n%s\n%s", method, path, ts)
+			req.Header.Set("X-Filex-Signature", hex.EncodeToString(mac.Sum(nil)))
+		}
 	}
 	return req, nil
 }

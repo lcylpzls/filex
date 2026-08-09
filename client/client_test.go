@@ -256,6 +256,27 @@ func TestClientOptionsAndNew(t *testing.T) {
 	if gotAuth != "Bearer tok" {
 		t.Fatalf("Authorization 头不符：%q", gotAuth)
 	}
+
+	var gotTS, gotSig string
+	rt2 := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		gotTS = req.Header.Get("X-Filex-Timestamp")
+		gotSig = req.Header.Get("X-Filex-Signature")
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    req,
+		}, nil
+	})
+	c2, err := New("https://example.com", WithHMAC([]byte("secret")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2.httpClient = &http.Client{Transport: rt2}
+	_ = c2.DeleteBucket(context.Background(), "abc")
+	if gotTS == "" || len(gotSig) != 64 {
+		t.Fatalf("HMAC 头不符：ts=%q sig=%q", gotTS, gotSig)
+	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

@@ -551,3 +551,19 @@ func TestMultipartCompleteVersioningError(t *testing.T) {
 		t.Fatalf("Complete 版本配置读取失败应透传：%v", err)
 	}
 }
+
+func TestMaxPartsConfig(t *testing.T) {
+	if _, err := New(Config{DataDir: t.TempDir(), MaxParts: -1}); err == nil {
+		t.Fatal("负数部件上限应报错")
+	}
+	s, _ := New(Config{DataDir: t.TempDir(), MaxParts: 2})
+	defer s.Close()
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	up, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
+	if _, err := s.UploadPart(ctx, "abc", "k", up.UploadID, 3, strings.NewReader("v")); err == nil {
+		t.Fatal("超过 MaxParts 部件号应报错")
+	} else {
+		mustErrCode(t, err, CodeUploadInvalid)
+	}
+}

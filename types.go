@@ -26,8 +26,12 @@ type Config struct {
 	MaxObjectSize int64
 	// MaxKeyBytes 是键最大字节数；0 表示默认 1024。
 	MaxKeyBytes int
+	// MaxParts 是单次分片上传的部件数量上限；0 表示默认 10000。
+	MaxParts int
 	// DisableSync 为 true 时跳过 fsync（默认 false，即默认落盘强一致）。
 	DisableSync bool
+	// EncryptionKey 是 32 字节主密钥；设置后启用服务端静态加密。
+	EncryptionKey []byte
 	// Logger 是可选结构化日志。
 	Logger Logger
 	// Metrics 是可选指标打点。

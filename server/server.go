@@ -4,7 +4,9 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -53,6 +55,24 @@ type HandlerConfig struct {
 	Store Store
 	// Logger 是可选结构化日志。
 	Logger filex.Logger
+	// Token 设置后要求 Authorization: Bearer <Token>。
+	Token string
+	// Authenticate 是可选鉴权回调；返回错误则拒绝请求。
+	Authenticate func(r *http.Request) error
+	// HMACSecret 设置后要求 X-Filex-Signature 请求签名。
+	HMACSecret []byte
+	// Audit 是可选审计回调。
+	Audit func(AuditEvent)
+}
+
+// AuditEvent 是审计事件。
+type AuditEvent struct {
+	RequestID string
+	Method    string
+	Path      string
+	Subject   string
+	Status    int
+	At        time.Time
 }
 
 // randReader 可注入，便于测试随机数失败分支。
@@ -89,6 +109,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set(proto.HeaderRequestID, rid)
 	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 	start := time.Now()
+	subject := "anonymous"
 	defer func() {
 		if rec := recover(); rec != nil {
 			h.writeError(sw, rid, errx.NewCode(filex.CodeInternal, fmt.Sprintf("服务器内部错误：%v", rec)))
@@ -102,8 +123,73 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				logx.Int64("duration_ms", time.Since(start).Milliseconds()),
 			))
 		}
+		if h.cfg.Audit != nil {
+			h.cfg.Audit(AuditEvent{
+				RequestID: rid,
+				Method:    r.Method,
+				Path:      r.URL.Path,
+				Subject:   subject,
+				Status:    sw.status,
+				At:        time.Now(),
+			})
+		}
 	}()
+	var ok bool
+	subject, ok = h.authenticate(sw, r, rid)
+	if !ok {
+		return
+	}
 	h.mux.ServeHTTP(sw, r)
+}
+
+// authenticate 执行可选的 Bearer / HMAC / 回调鉴权与防重放校验。
+func (h *handler) authenticate(w http.ResponseWriter, r *http.Request, rid string) (string, bool) {
+	if h.cfg.Token == "" && h.cfg.Authenticate == nil && len(h.cfg.HMACSecret) == 0 {
+		return "anonymous", true
+	}
+	tsStr := r.Header.Get("X-Filex-Timestamp")
+	if tsStr == "" {
+		h.writeError(w, rid, errx.NewCode(filex.CodeUnauthorized, "缺少时间戳"))
+		return "", false
+	}
+	ts, err := strconv.ParseInt(tsStr, 10, 64)
+	if err != nil {
+		h.writeError(w, rid, errx.NewCode(filex.CodeUnauthorized, "时间戳非法"))
+		return "", false
+	}
+	diff := time.Since(time.Unix(ts, 0))
+	if diff > 5*time.Minute || diff < -5*time.Minute {
+		h.writeError(w, rid, errx.NewCode(filex.CodeUnauthorized, "时间戳过期"))
+		return "", false
+	}
+	subject := "anonymous"
+	if len(h.cfg.HMACSecret) > 0 {
+		mac := hmac.New(sha256.New, h.cfg.HMACSecret)
+		_, _ = fmt.Fprintf(mac, "%s\n%s\n%s", r.Method, r.URL.RequestURI(), tsStr)
+		got := r.Header.Get("X-Filex-Signature")
+		if !hmac.Equal([]byte(got), []byte(hex.EncodeToString(mac.Sum(nil)))) {
+			h.writeError(w, rid, errx.NewCode(filex.CodeUnauthorized, "请求签名无效"))
+			return "", false
+		}
+		subject = "hmac"
+	}
+	if h.cfg.Token != "" {
+		auth := r.Header.Get("Authorization")
+		want := "Bearer " + h.cfg.Token
+		if !hmac.Equal([]byte(auth), []byte(want)) {
+			h.writeError(w, rid, errx.NewCode(filex.CodeUnauthorized, "令牌无效"))
+			return "", false
+		}
+		subject = "token"
+	}
+	if h.cfg.Authenticate != nil {
+		if err := h.cfg.Authenticate(r); err != nil {
+			h.writeError(w, rid, errx.NewCode(filex.CodeForbidden, "鉴权回调拒绝"))
+			return "", false
+		}
+		subject = "callback"
+	}
+	return subject, true
 }
 
 // statusWriter 记录实际响应状态码，供日志使用。

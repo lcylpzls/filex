@@ -154,8 +154,8 @@ func (s *Store) UploadPart(ctx context.Context, bucket, key, uploadID string, pa
 	if r == nil {
 		return PartInfo{}, newCode(CodeInvalidArgument, "部件内容读取器不能为空")
 	}
-	if partNumber < 1 || partNumber > maxUploadParts {
-		return PartInfo{}, newCodef(CodeUploadInvalid, "部件号必须在 1-%d 之间", maxUploadParts)
+	if partNumber < 1 || partNumber > s.cfg.MaxParts {
+		return PartInfo{}, newCodef(CodeUploadInvalid, "部件号必须在 1-%d 之间", s.cfg.MaxParts)
 	}
 	if err := validateBucketName(bucket); err != nil {
 		return PartInfo{}, err
@@ -263,6 +263,10 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		versionID = newVersionID()
 	}
 	dataPath, metaPath := s.objectPaths(bucket, key, versionID)
+	cipherCtx, err := newObjectCipher(s.cfg.EncryptionKey)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
 
 	um, err := readUploadMeta(s.fs, s.uploadMetaPath(bucket, uploadID))
 	if os.IsNotExist(err) {
@@ -318,6 +322,13 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 			cleanup()
 		}
 	}()
+	var dst io.Writer = f
+	if cipherCtx != nil {
+		if _, err := f.Write(cipherCtx.dataNonce); err != nil {
+			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入加密随机数失败")
+		}
+		dst = cipherCtx.newCTRWriter(f)
+	}
 	hasher := sha256.New()
 	var total int64
 	for _, n := range numbers {
@@ -332,7 +343,7 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		if err != nil {
 			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "打开部件数据失败")
 		}
-		n2, err := s.fs.WriteToFile(io.MultiWriter(f, hasher), pf)
+		n2, err := s.fs.WriteToFile(io.MultiWriter(dst, hasher), pf)
 		_ = pf.Close()
 		if err != nil {
 			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "合并部件失败")
@@ -372,6 +383,9 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		VersionID:   versionID,
 		CreatedAt:   um.CreatedAt,
 		UpdatedAt:   time.Now().UTC(),
+	}
+	if cipherCtx != nil {
+		om.Encryption = &cipherCtx.meta
 	}
 	if err := s.writeJSONAtomic(metaPath, om); err != nil {
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象元数据失败")

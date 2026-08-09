@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -19,15 +20,15 @@ import (
 	"github.com/lcylpzls/filex/server"
 )
 
-func run(addr, dataDir string) error {
-	store, err := filex.New(filex.Config{DataDir: dataDir})
+func runWithOptions(addr, dataDir, token string, encKey []byte) error {
+	store, err := filex.New(filex.Config{DataDir: dataDir, EncryptionKey: encKey})
 	if err != nil {
 		return err
 	}
 	defer store.Close()
 
 	srv := &http.Server{
-		Handler: server.NewHandler(server.HandlerConfig{Store: store}),
+		Handler: server.NewHandler(server.HandlerConfig{Store: store, Token: token}),
 	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -39,7 +40,11 @@ func run(addr, dataDir string) error {
 	fmt.Printf("filex 协议服务已启动：http://%s\n", ln.Addr())
 
 	ctx := context.Background()
-	c, err := client.New("http://" + ln.Addr().String())
+	var opts []client.Option
+	if token != "" {
+		opts = append(opts, client.WithToken(token))
+	}
+	c, err := client.New("http://"+ln.Addr().String(), opts...)
 	if err != nil {
 		return err
 	}
@@ -82,8 +87,19 @@ func run(addr, dataDir string) error {
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8099", "监听地址")
 	dataDir := flag.String("data", "data", "数据目录")
+	token := flag.String("token", "", "Bearer 令牌（可选）")
+	encKeyHex := flag.String("enc-key", "", "32 字节主密钥（64 位十六进制，可选）")
 	flag.Parse()
-	if err := run(*addr, *dataDir); err != nil {
+	var encKey []byte
+	if *encKeyHex != "" {
+		key, err := hex.DecodeString(*encKeyHex)
+		if err != nil {
+			log.Println("enc-key 必须是十六进制")
+			os.Exit(1)
+		}
+		encKey = key
+	}
+	if err := runWithOptions(*addr, *dataDir, *token, encKey); err != nil {
 		log.Println(err)
 		os.Exit(1)
 	}

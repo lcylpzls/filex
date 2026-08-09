@@ -51,6 +51,8 @@ filex 是**自用对象存储 Go 组件**：提供本地盘对象存储引擎、
 - 错误：统一 JSON `{"code","kind","message","requestId"}`，
   HTTP 状态由 errx Kind 映射；
 - 鉴权：v0.5.0 起支持 `Authorization: Bearer` 或令牌回调注入。
+- 静态加密：v0.5.0 起支持 AES-256-CTR 逐对象加密，DEK 随机生成、
+  由 AES-GCM 主密钥包装；SHA256 校验基于明文。
 
 ## 5. 数据流
 

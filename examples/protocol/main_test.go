@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -34,4 +35,11 @@ func TestProtocolRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = obj.Close()
+}
+
+func TestProtocolWithAuthAndEncryption(t *testing.T) {
+	dir := t.TempDir()
+	if err := runWithOptions("127.0.0.1:0", dir, "tok", bytes.Repeat([]byte{1}, 32)); err != nil {
+		t.Fatalf("带鉴权与加密示例失败：%v", err)
+	}
 }

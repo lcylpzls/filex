@@ -1,5 +1,23 @@
 # 更新日志
 
+## [v0.5.0] - 2026-08-10
+
+### 新增
+
+- 服务端静态加密：AES-256-CTR 逐对象加密，DEK 随机生成并用 AES-GCM
+  主密钥（KEK）包装存入元数据；读取自动解密，SHA256 仍基于明文；
+- 加密对象拒绝 Range 读取；篡改密文可在校验读取时发现；
+- 鉴权：`Bearer` 令牌、HMAC-SHA256 请求签名、鉴权回调三种方式；
+- 防重放：开启鉴权后要求 `X-Filex-Timestamp`（±5 分钟窗口）；
+- 审计：`HandlerConfig.Audit` 回调输出请求 ID、主体、路径与状态；
+- `Config.MaxParts` 部件数量上限可配置（默认 10000）；
+- 客户端 `WithHMAC` 请求签名选项。
+
+### 质量
+
+- 根包与 proto / server / client 语句覆盖率均 100%；
+  race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.4.0] - 2026-08-10
 
 ### 新增

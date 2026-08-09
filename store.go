@@ -36,11 +36,20 @@ func New(cfg Config) (*Store, error) {
 	if cfg.MaxKeyBytes < 0 {
 		return nil, newCode(CodeInvalidConfig, "键长度上限不能为负数")
 	}
+	if cfg.MaxParts < 0 {
+		return nil, newCode(CodeInvalidConfig, "部件数量上限不能为负数")
+	}
+	if len(cfg.EncryptionKey) > 0 && len(cfg.EncryptionKey) != 32 {
+		return nil, newCode(CodeInvalidConfig, "加密主密钥必须是 32 字节")
+	}
 	if cfg.MaxObjectSize == 0 {
 		cfg.MaxObjectSize = defaultMaxObjectSize
 	}
 	if cfg.MaxKeyBytes == 0 {
 		cfg.MaxKeyBytes = defaultMaxKeyBytes
+	}
+	if cfg.MaxParts == 0 {
+		cfg.MaxParts = maxUploadParts
 	}
 	abs, err := filepath.Abs(cfg.DataDir)
 	if err != nil {

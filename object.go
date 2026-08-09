@@ -2,6 +2,8 @@ package filex
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/hex"
 	"hash"
@@ -58,6 +60,11 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 			return ObjectInfo{}, newCode(CodeStorageFailed, "键哈希冲突，拒绝写入")
 		}
 	}
+	cipherCtx, err := newObjectCipher(s.cfg.EncryptionKey)
+	if err != nil {
+		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		return ObjectInfo{}, err
+	}
 
 	dir := filepath.Dir(dataPath)
 	if err := s.fs.MkdirAll(dir, 0o755); err != nil {
@@ -78,9 +85,17 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		}
 	}()
 
+	var dst io.Writer = f
+	if cipherCtx != nil {
+		if _, err := f.Write(cipherCtx.dataNonce); err != nil {
+			s.metrics.IncError(bucket, string(CodeStorageFailed))
+			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入加密随机数失败")
+		}
+		dst = cipherCtx.newCTRWriter(f)
+	}
 	hasher := sha256.New()
 	limited := io.LimitReader(r, s.cfg.MaxObjectSize+1)
-	size, err := s.fs.WriteToFile(io.MultiWriter(f, hasher), limited)
+	size, err := s.fs.WriteToFile(io.MultiWriter(dst, hasher), limited)
 	if err != nil {
 		s.metrics.IncError(bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象内容失败")
@@ -119,6 +134,9 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		VersionID:   versionID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
+	}
+	if cipherCtx != nil {
+		meta.Encryption = &cipherCtx.meta
 	}
 	if meta.ContentType == "" {
 		meta.ContentType = "application/octet-stream"
@@ -203,6 +221,11 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (*
 
 // openObject 打开已定位元数据的对象内容。
 func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string, opts GetOptions) (*Object, error) {
+	if meta.Encryption != nil {
+		if opts.Range != nil {
+			return nil, newCode(CodeInvalidArgument, "加密对象不支持范围读取")
+		}
+	}
 	info, err := s.fs.Stat(dataPath)
 	if os.IsNotExist(err) {
 		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
@@ -212,7 +235,7 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 		s.metrics.IncError(bucket, string(CodeStorageFailed))
 		return nil, wrapCode(err, CodeStorageFailed, "检查对象数据失败")
 	}
-	if info.Size() != meta.Size {
+	if meta.Encryption == nil && info.Size() != meta.Size {
 		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
 		return nil, newCodef(CodeMetadataCorrupt, "对象大小不一致：期望 %d，实际 %d", meta.Size, info.Size())
 	}
@@ -221,8 +244,31 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 		s.metrics.IncError(bucket, string(CodeStorageFailed))
 		return nil, wrapCode(err, CodeStorageFailed, "打开对象数据失败")
 	}
-	var rc io.ReadCloser = f
-	if opts.Range != nil {
+	var rc io.ReadCloser
+	if meta.Encryption != nil {
+		nonce := make([]byte, 16)
+		if _, err := io.ReadFull(f, nonce); err != nil {
+			_ = f.Close()
+			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			return nil, newCode(CodeMetadataCorrupt, "读取加密随机数失败")
+		}
+		dek, err := unwrapObjectKey(s.cfg.EncryptionKey, *meta.Encryption)
+		if err != nil {
+			_ = f.Close()
+			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			return nil, err
+		}
+		block, _ := aes.NewCipher(dek)
+		base := &closeReader{
+			Reader: io.LimitReader(cipher.StreamReader{S: cipher.NewCTR(block, nonce), R: f}, meta.Size),
+			closer: f,
+		}
+		if opts.Verify {
+			rc = newVerifyingReader(base, meta.SHA256)
+		} else {
+			rc = base
+		}
+	} else if opts.Range != nil {
 		if opts.Range.Start < 0 || opts.Range.End < opts.Range.Start || opts.Range.Start >= meta.Size {
 			_ = f.Close()
 			return nil, newCode(CodeInvalidRange, "字节范围越界")
@@ -237,6 +283,8 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 		}
 	} else if opts.Verify {
 		rc = newVerifyingReader(f, meta.SHA256)
+	} else {
+		rc = f
 	}
 	s.metrics.Add(bucket, "get", meta.Size)
 	s.logInfo("读取对象",
@@ -245,6 +293,16 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 		logx.String("etag", meta.SHA256),
 	)
 	return &Object{Info: objectInfoFromMeta(bucket, *meta), ReadCloser: rc}, nil
+}
+
+// closeReader 组合通用读取器与关闭器。
+type closeReader struct {
+	io.Reader
+	closer io.Closer
+}
+
+func (c *closeReader) Close() error {
+	return c.closer.Close()
 }
 
 // Head 读取对象元数据，不打开内容。
