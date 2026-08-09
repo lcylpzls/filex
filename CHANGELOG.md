@@ -1,5 +1,18 @@
 # 更新日志
 
+## [v0.15.0] - 2026-08-10
+
+### 新增
+
+- 桶元数据解码 fuzz 目标（FuzzDecodeBucketMeta）接入 CI；
+- API 冻结快照更新至 v0.15.0；
+- 终审文档同步。
+
+### 质量
+
+- 四包覆盖率保持 100%；race（全平台）/ vet / staticcheck / fuzz /
+  govulncheck 全绿。
+
 ## [v0.14.0] - 2026-08-10
 
 ### 修复

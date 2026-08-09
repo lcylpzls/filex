@@ -52,6 +52,11 @@ func readBucketMeta(fs fsOps, path string) (*bucketMeta, error) {
 	if err != nil {
 		return nil, err
 	}
+	return decodeBucketMeta(data)
+}
+
+// decodeBucketMeta 从字节解码并校验桶元数据。
+func decodeBucketMeta(data []byte) (*bucketMeta, error) {
 	var m bucketMeta
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, errx.NewCode(CodeMetadataCorrupt, "桶元数据 JSON 损坏")

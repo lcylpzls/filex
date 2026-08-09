@@ -58,3 +58,16 @@ func FuzzDecodePartMeta(f *testing.F) {
 		_, _ = decodePartMeta(data)
 	})
 }
+
+func FuzzDecodeBucketMeta(f *testing.F) {
+	for _, seed := range []string{
+		`{"name":"abc","created_at":"2026-08-10T00:00:00Z"}`,
+		`{`,
+		`{"name":""}`,
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = decodeBucketMeta(data)
+	})
+}

@@ -119,6 +119,7 @@ jobs:
           go test -run '^$' -fuzz '^FuzzDecodeObjectMeta$' -fuzztime=5s .
           go test -run '^$' -fuzz '^FuzzDecodeUploadMeta$' -fuzztime=5s .
           go test -run '^$' -fuzz '^FuzzDecodePartMeta$' -fuzztime=5s .
+          go test -run '^$' -fuzz '^FuzzDecodeBucketMeta$' -fuzztime=5s .
           cd proto && go test -run '^$' -fuzz '^FuzzParseRange$' -fuzztime=5s .
 
   vulncheck:
