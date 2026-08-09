@@ -242,6 +242,9 @@ func (s *Store) RunLifecycle(ctx context.Context, bucket string) (LifecycleRepor
 func (s *Store) SweepOrphans(ctx context.Context) (SweepReport, error)
 func (s *Store) Health(ctx context.Context) error
 func (c *Client) Health(ctx context.Context) error
+func (s *Store) VerifyObject(ctx context.Context, bucket, key string) error
+func (s *Store) VerifyAll(ctx context.Context, concurrency int) (IntegrityReport, error)
+func (s *Store) BucketUsage(ctx context.Context, bucket string) (int64, error)
 ```
 
 协议端点：`GET /filex/v1/health` 返回 `{"status":"ok"}`。

@@ -1,5 +1,22 @@
 # 更新日志
 
+## [v0.11.0] - 2026-08-10
+
+### 新增
+
+- 数据完整性审计：
+  - `VerifyObject`：单对象流式复验 SHA256；
+  - `VerifyAll`：并发审计全部桶的当前对象与全部版本（跳过删除标记），
+    输出损坏清单；
+- `BucketUsage` 公开桶用量（含全部非删除版本）；
+- 上下文取消语义：Put / UploadPart / CompleteMultipartUpload 在读取与
+  合并阶段响应取消/超时，归一为 `filex_cancelled`；
+- `Metrics` 接口明确要求实现必须并发安全。
+
+### 质量
+
+- 四包覆盖率保持 100%；race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.10.0] - 2026-08-10
 
 ### 改进

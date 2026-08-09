@@ -1,6 +1,7 @@
 package filex
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/lcylpzls/errx"
@@ -22,6 +23,7 @@ func (f *fakeLogger) Error(msg string, _ logx.FieldGroup) {
 
 // fakeMetrics 记录指标打点。
 type fakeMetrics struct {
+	mu    sync.Mutex
 	adds map[string]int64
 	errs map[string]int
 }
@@ -31,10 +33,14 @@ func newFakeMetrics() *fakeMetrics {
 }
 
 func (f *fakeMetrics) Add(bucket, op string, bytes int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.adds[bucket+"/"+op] += bytes
 }
 
 func (f *fakeMetrics) IncError(bucket, code string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.errs[bucket+"/"+code]++
 }
 

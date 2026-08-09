@@ -85,6 +85,19 @@ func (s *Store) Health(ctx context.Context) error {
 	return nil
 }
 
+// BucketUsage 返回桶内非删除对象的字节总量（含全部版本）。
+func (s *Store) BucketUsage(ctx context.Context, bucket string) (int64, error) {
+	if err := validateBucketName(bucket); err != nil {
+		return 0, err
+	}
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	if _, err := s.ensureBucket(bucket); err != nil {
+		return 0, err
+	}
+	return s.bucketUsage(bucket)
+}
+
 // CreateBucket 创建桶。
 func (s *Store) CreateBucket(ctx context.Context, name string) (BucketInfo, error) {
 	if err := validateBucketName(name); err != nil {

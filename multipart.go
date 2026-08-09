@@ -199,9 +199,10 @@ func (s *Store) UploadPart(ctx context.Context, bucket, key, uploadID string, pa
 		}
 	}()
 	hasher := sha256.New()
-	size, err := s.fs.WriteToFile(io.MultiWriter(f, hasher), io.LimitReader(r, s.cfg.MaxObjectSize+1))
+	size, err := s.fs.WriteToFile(io.MultiWriter(f, hasher),
+		io.LimitReader(newContextReader(ctx, r), s.cfg.MaxObjectSize+1))
 	if err != nil {
-		return PartInfo{}, wrapCode(err, CodeStorageFailed, "写入部件内容失败")
+		return PartInfo{}, storageErr(err, "写入部件内容失败")
 	}
 	if size > s.cfg.MaxObjectSize {
 		return PartInfo{}, newCodef(CodeObjectTooLarge, "部件超过 %d 字节上限", s.cfg.MaxObjectSize)
@@ -343,10 +344,10 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		if err != nil {
 			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "打开部件数据失败")
 		}
-		n2, err := s.fs.WriteToFile(io.MultiWriter(dst, hasher), pf)
+		n2, err := s.fs.WriteToFile(io.MultiWriter(dst, hasher), newContextReader(ctx, pf))
 		_ = pf.Close()
 		if err != nil {
-			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "合并部件失败")
+			return ObjectInfo{}, storageErr(err, "合并部件失败")
 		}
 		total += n2
 		if n2 != pm.Size {

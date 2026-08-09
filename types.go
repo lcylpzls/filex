@@ -47,9 +47,9 @@ type Logger interface {
 
 // Metrics 是 filex 的指标打点接口，可对接 metricsx。
 type Metrics interface {
-	// Add 累加一次操作的字节量。
+	// Add 累加一次操作的字节量；实现必须并发安全。
 	Add(bucket, operation string, bytes int64)
-	// IncError 记录一次错误。
+	// IncError 记录一次错误；实现必须并发安全。
 	IncError(bucket, code string)
 }
 

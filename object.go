@@ -94,11 +94,11 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		dst = cipherCtx.newCTRWriter(f)
 	}
 	hasher := sha256.New()
-	limited := io.LimitReader(r, s.cfg.MaxObjectSize+1)
+	limited := io.LimitReader(newContextReader(ctx, r), s.cfg.MaxObjectSize+1)
 	size, err := s.fs.WriteToFile(io.MultiWriter(dst, hasher), limited)
 	if err != nil {
 		s.metrics.IncError(bucket, string(CodeStorageFailed))
-		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象内容失败")
+		return ObjectInfo{}, storageErr(err, "写入对象内容失败")
 	}
 	if size > s.cfg.MaxObjectSize {
 		return ObjectInfo{}, newCodef(CodeObjectTooLarge, "对象超过 %d 字节上限", s.cfg.MaxObjectSize)
