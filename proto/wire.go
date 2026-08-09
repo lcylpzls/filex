@@ -40,6 +40,27 @@ type ErrorBody struct {
 	RequestID string `json:"requestId,omitempty"`
 }
 
+// UploadInfoJSON 是分片上传会话的线格式。
+type UploadInfoJSON struct {
+	UploadID  string    `json:"upload_id"`
+	Bucket    string    `json:"bucket"`
+	Key       string    `json:"key"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PartInfoJSON 是部件的线格式。
+type PartInfoJSON struct {
+	PartNumber int       `json:"part_number"`
+	Size       int64     `json:"size"`
+	SHA256     string    `json:"sha256"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// PartListJSON 是部件列表的线格式。
+type PartListJSON struct {
+	Parts []PartInfoJSON `json:"parts"`
+}
+
 // ToBucketJSON 转换 filex.BucketInfo 为线格式。
 func ToBucketJSON(b filex.BucketInfo) BucketInfoJSON {
 	return BucketInfoJSON{Name: b.Name, CreatedAt: b.CreatedAt}
@@ -102,6 +123,44 @@ func (l ListResultJSON) ToFilex() filex.ListResult {
 	}
 	for _, o := range l.Objects {
 		out.Objects = append(out.Objects, o.ToFilex())
+	}
+	return out
+}
+
+// ToUploadJSON 转换 filex.UploadInfo 为线格式。
+func ToUploadJSON(u filex.UploadInfo) UploadInfoJSON {
+	return UploadInfoJSON{UploadID: u.UploadID, Bucket: u.Bucket, Key: u.Key, CreatedAt: u.CreatedAt}
+}
+
+// ToFilex 转换线格式为 filex.UploadInfo。
+func (u UploadInfoJSON) ToFilex() filex.UploadInfo {
+	return filex.UploadInfo{UploadID: u.UploadID, Bucket: u.Bucket, Key: u.Key, CreatedAt: u.CreatedAt}
+}
+
+// ToPartJSON 转换 filex.PartInfo 为线格式。
+func ToPartJSON(p filex.PartInfo) PartInfoJSON {
+	return PartInfoJSON{PartNumber: p.PartNumber, Size: p.Size, SHA256: p.SHA256, UpdatedAt: p.UpdatedAt}
+}
+
+// ToFilex 转换线格式为 filex.PartInfo。
+func (p PartInfoJSON) ToFilex() filex.PartInfo {
+	return filex.PartInfo{PartNumber: p.PartNumber, Size: p.Size, SHA256: p.SHA256, UpdatedAt: p.UpdatedAt}
+}
+
+// ToPartListJSON 转换部件切片为线格式。
+func ToPartListJSON(parts []filex.PartInfo) PartListJSON {
+	out := PartListJSON{Parts: make([]PartInfoJSON, 0, len(parts))}
+	for _, p := range parts {
+		out.Parts = append(out.Parts, ToPartJSON(p))
+	}
+	return out
+}
+
+// ToFilex 转换线格式为部件切片。
+func (l PartListJSON) ToFilex() []filex.PartInfo {
+	out := make([]filex.PartInfo, 0, len(l.Parts))
+	for _, p := range l.Parts {
+		out = append(out, p.ToFilex())
 	}
 	return out
 }

@@ -2,6 +2,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,12 +11,16 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/filex"
 	"github.com/lcylpzls/filex/proto"
 )
+
+// defaultPartSize 是 PutMultipart 的默认部件大小（16 MiB）。
+const defaultPartSize = int64(16) << 20
 
 // Client 是 filex 协议客户端。
 type Client struct {
@@ -196,6 +201,140 @@ func (c *Client) List(ctx context.Context, bucket string, opts filex.ListOptions
 		return filex.ListResult{}, err
 	}
 	return out.ToFilex(), nil
+}
+
+// InitiateMultipartUpload 创建分片上传会话。
+func (c *Client) InitiateMultipartUpload(ctx context.Context, bucket, key string, opts filex.PutOptions) (filex.UploadInfo, error) {
+	hdr := http.Header{}
+	ct := opts.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	hdr.Set("Content-Type", ct)
+	if len(opts.Metadata) > 0 {
+		b, _ := json.Marshal(opts.Metadata)
+		hdr.Set(proto.HeaderMetadata, string(b))
+	}
+	var out proto.UploadInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, c.objectPath(bucket, key)+"?upload=initiate", nil, hdr, &out); err != nil {
+		return filex.UploadInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
+// UploadPart 上传单个部件。
+func (c *Client) UploadPart(ctx context.Context, bucket, key, uploadID string, partNumber int, r io.Reader) (filex.PartInfo, error) {
+	path := c.objectPath(bucket, key) +
+		"?upload=part&upload-id=" + url.QueryEscape(uploadID) +
+		"&part-number=" + strconv.Itoa(partNumber)
+	var out proto.PartInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, path, r, nil, &out); err != nil {
+		return filex.PartInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
+// CompleteMultipartUpload 完成分片上传。
+func (c *Client) CompleteMultipartUpload(ctx context.Context, bucket, key, uploadID string) (filex.ObjectInfo, error) {
+	path := c.objectPath(bucket, key) + "?upload=complete&upload-id=" + url.QueryEscape(uploadID)
+	var out proto.ObjectInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, path, nil, nil, &out); err != nil {
+		return filex.ObjectInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
+// AbortMultipartUpload 中止分片上传。
+func (c *Client) AbortMultipartUpload(ctx context.Context, bucket, key, uploadID string) error {
+	path := c.objectPath(bucket, key) + "?upload=abort&upload-id=" + url.QueryEscape(uploadID)
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil, nil)
+}
+
+// ListParts 枚举已上传部件。
+func (c *Client) ListParts(ctx context.Context, bucket, key, uploadID string) ([]filex.PartInfo, error) {
+	path := c.objectPath(bucket, key) + "?upload=parts&upload-id=" + url.QueryEscape(uploadID)
+	var out proto.PartListJSON
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.ToFilex(), nil
+}
+
+// PutMultipart 以分片方式上传大对象：自动切分、并发上传、失败自动中止。
+// 内存占用上限约为 concurrency × partSize。
+func (c *Client) PutMultipart(ctx context.Context, bucket, key string, r io.Reader,
+	opts filex.PutOptions, partSize int64, concurrency int) (filex.ObjectInfo, error) {
+	if partSize <= 0 {
+		partSize = defaultPartSize
+	}
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+	up, err := c.InitiateMultipartUpload(ctx, bucket, key, opts)
+	if err != nil {
+		return filex.ObjectInfo{}, err
+	}
+	completed := false
+	defer func() {
+		if !completed {
+			_ = c.AbortMultipartUpload(ctx, bucket, key, up.UploadID)
+		}
+	}()
+
+	type job struct {
+		number int
+		data   []byte
+	}
+	jobs := make(chan job)
+	errs := make(chan error, concurrency)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				if _, err := c.UploadPart(ctx, bucket, key, up.UploadID, j.number, bytes.NewReader(j.data)); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+
+	partNumber := 1
+	for {
+		data, err := io.ReadAll(io.LimitReader(r, partSize))
+		if err != nil {
+			close(jobs)
+			wg.Wait()
+			return filex.ObjectInfo{}, err
+		}
+		if len(data) == 0 {
+			break
+		}
+		select {
+		case err := <-errs:
+			close(jobs)
+			wg.Wait()
+			return filex.ObjectInfo{}, err
+		case jobs <- job{number: partNumber, data: data}:
+			partNumber++
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	select {
+	case err := <-errs:
+		return filex.ObjectInfo{}, err
+	default:
+	}
+
+	info, err := c.CompleteMultipartUpload(ctx, bucket, key, up.UploadID)
+	if err != nil {
+		return filex.ObjectInfo{}, err
+	}
+	completed = true
+	return info, nil
 }
 
 func (c *Client) objectPath(bucket, key string) string {

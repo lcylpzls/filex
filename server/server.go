@@ -31,6 +31,11 @@ type Store interface {
 	Head(ctx context.Context, bucket, key string) (filex.ObjectInfo, error)
 	Delete(ctx context.Context, bucket, key string) error
 	List(ctx context.Context, bucket string, opts filex.ListOptions) (filex.ListResult, error)
+	InitiateMultipartUpload(ctx context.Context, bucket, key string, opts filex.PutOptions) (filex.UploadInfo, error)
+	UploadPart(ctx context.Context, bucket, key, uploadID string, partNumber int, r io.Reader) (filex.PartInfo, error)
+	CompleteMultipartUpload(ctx context.Context, bucket, key, uploadID string) (filex.ObjectInfo, error)
+	AbortMultipartUpload(ctx context.Context, bucket, key, uploadID string) error
+	ListParts(ctx context.Context, bucket, key, uploadID string) ([]filex.PartInfo, error)
 }
 
 // HandlerConfig 是协议处理器的配置。
@@ -188,6 +193,48 @@ func (h *handler) handlePutObject(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, requestID(r), errx.NewCode(filex.CodeInvalidKey, "键名不能为空"))
 		return
 	}
+	q := r.URL.Query()
+	switch q.Get("upload") {
+	case "initiate":
+		metadata, err := parseMetadataHeader(r.Header.Get(proto.HeaderMetadata))
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		opts := filex.PutOptions{
+			ContentType: r.Header.Get("Content-Type"),
+			Metadata:    metadata,
+		}
+		info, err := h.cfg.Store.InitiateMultipartUpload(r.Context(), bucket, key, opts)
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToUploadJSON(info))
+		return
+	case "part":
+		uploadID := q.Get("upload-id")
+		partNumber, err := strconv.Atoi(q.Get("part-number"))
+		if err != nil {
+			h.writeError(w, requestID(r), errx.NewCode(filex.CodeUploadInvalid, "part-number 必须是整数"))
+			return
+		}
+		info, err := h.cfg.Store.UploadPart(r.Context(), bucket, key, uploadID, partNumber, r.Body)
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToPartJSON(info))
+		return
+	case "complete":
+		info, err := h.cfg.Store.CompleteMultipartUpload(r.Context(), bucket, key, q.Get("upload-id"))
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToObjectJSON(info))
+		return
+	}
 	metadata, err := parseMetadataHeader(r.Header.Get(proto.HeaderMetadata))
 	if err != nil {
 		h.writeError(w, requestID(r), err)
@@ -211,6 +258,15 @@ func (h *handler) handleGetObject(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	if key == "" {
 		h.writeError(w, requestID(r), errx.NewCode(filex.CodeInvalidKey, "键名不能为空"))
+		return
+	}
+	if r.URL.Query().Get("upload") == "parts" {
+		parts, err := h.cfg.Store.ListParts(r.Context(), bucket, key, r.URL.Query().Get("upload-id"))
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToPartListJSON(parts))
 		return
 	}
 	info, err := h.cfg.Store.Head(r.Context(), bucket, key)
@@ -265,6 +321,14 @@ func (h *handler) handleHeadObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) handleDeleteObject(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("upload") == "abort" {
+		if err := h.cfg.Store.AbortMultipartUpload(r.Context(), r.PathValue("bucket"), r.PathValue("key"), r.URL.Query().Get("upload-id")); err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err := h.cfg.Store.Delete(r.Context(), r.PathValue("bucket"), r.PathValue("key")); err != nil {
 		h.writeError(w, requestID(r), err)
 		return

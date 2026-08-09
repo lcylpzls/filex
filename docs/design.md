@@ -45,6 +45,9 @@ filex 是**自用对象存储 Go 组件**：提供本地盘对象存储引擎、
 - 条件请求：`If-Match` / `If-None-Match`（ETag）；
 - 范围读取：`Range: bytes=start-end`，响应 `Content-Range`；
 - 列表：`prefix` / `marker` / `limit` / `delimiter`，返回对象与公共前缀；
+- 分片上传：`PUT` 对象端点携带 `upload=initiate|part|complete`，
+  `GET` 携带 `upload=parts` 枚举部件，`DELETE` 携带 `upload=abort`
+  中止会话；会话 ID 与部件号通过查询参数传递；
 - 错误：统一 JSON `{"code","kind","message","requestId"}`，
   HTTP 状态由 errx Kind 映射；
 - 鉴权：v0.5.0 起支持 `Authorization: Bearer` 或令牌回调注入。

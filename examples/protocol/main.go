@@ -59,6 +59,12 @@ func run(addr, dataDir string) error {
 		return err
 	}
 	fmt.Printf("协议读取内容：%s\n", data)
+	_, err = c.PutMultipart(ctx, "demo-bucket", "notes/big.txt",
+		strings.NewReader("0123456789"), filex.PutOptions{}, 3, 2)
+	if err != nil {
+		return err
+	}
+	fmt.Println("分片上传完成")
 	_ = srv.Close()
 	return nil
 }

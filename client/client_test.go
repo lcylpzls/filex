@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -360,6 +361,147 @@ func TestClientGetConditional(t *testing.T) {
 		_ = obj.Close()
 		t.Fatal("If-None-Match 命中应返回错误")
 	}
+}
+
+func TestClientMultipartLifecycle(t *testing.T) {
+	c, _ := newClientServer(t)
+	ctx := context.Background()
+	_, _ = c.CreateBucket(ctx, "abc")
+
+	up, err := c.InitiateMultipartUpload(ctx, "abc", "big",
+		filex.PutOptions{ContentType: "text/plain", Metadata: map[string]string{"k": "v"}})
+	if err != nil {
+		t.Fatalf("Initiate 失败：%v", err)
+	}
+	if _, err := c.InitiateMultipartUpload(ctx, "missing", "big", filex.PutOptions{}); err == nil {
+		t.Fatal("缺失桶 Initiate 应报错")
+	}
+	if _, err := c.UploadPart(ctx, "abc", "big", up.UploadID, 1, strings.NewReader("aaa")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.UploadPart(ctx, "abc", "big", up.UploadID, 2, strings.NewReader("bbb")); err != nil {
+		t.Fatal(err)
+	}
+	parts, err := c.ListParts(ctx, "abc", "big", up.UploadID)
+	if err != nil || len(parts) != 2 || parts[1].PartNumber != 2 {
+		t.Fatalf("ListParts 不符：%+v, %v", parts, err)
+	}
+	info, err := c.CompleteMultipartUpload(ctx, "abc", "big", up.UploadID)
+	if err != nil {
+		t.Fatalf("Complete 失败：%v", err)
+	}
+	if info.ETag != sha256Hex("aaabbb") {
+		t.Fatalf("ETag 不符：%s", info.ETag)
+	}
+
+	// 中止
+	up2, _ := c.InitiateMultipartUpload(ctx, "abc", "gone", filex.PutOptions{})
+	_, _ = c.UploadPart(ctx, "abc", "gone", up2.UploadID, 1, strings.NewReader("x"))
+	if err := c.AbortMultipartUpload(ctx, "abc", "gone", up2.UploadID); err != nil {
+		t.Fatalf("Abort 失败：%v", err)
+	}
+	if _, err := c.ListParts(ctx, "abc", "gone", up2.UploadID); err == nil {
+		t.Fatal("中止后部件应不可见")
+	}
+}
+
+func TestClientPutMultipart(t *testing.T) {
+	c, _ := newClientServer(t)
+	ctx := context.Background()
+	_, _ = c.CreateBucket(ctx, "abc")
+
+	info, err := c.PutMultipart(ctx, "abc", "big", strings.NewReader("abcdef"), filex.PutOptions{}, 2, 2)
+	if err != nil {
+		t.Fatalf("PutMultipart 失败：%v", err)
+	}
+	if info.ETag != sha256Hex("abcdef") {
+		t.Fatalf("ETag 不符：%s", info.ETag)
+	}
+	info2, err := c.PutMultipart(ctx, "abc", "big2", strings.NewReader("xy"), filex.PutOptions{}, 0, 0)
+	if err != nil || info2.ETag != sha256Hex("xy") {
+		t.Fatalf("默认参数分片上传失败：%+v, %v", info2, err)
+	}
+	if _, err := c.PutMultipart(ctx, "missing", "k", strings.NewReader("x"), filex.PutOptions{}, 0, 0); err == nil {
+		t.Fatal("缺失桶 PutMultipart 应报错")
+	}
+
+	// 空流：无部件，应失败并自动中止
+	if _, err := c.PutMultipart(ctx, "abc", "empty", strings.NewReader(""), filex.PutOptions{}, 2, 2); err == nil {
+		t.Fatal("空流分片上传应报错")
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("读取失败") }
+
+func TestClientPutMultipartErrors(t *testing.T) {
+	c, _ := newClientServer(t)
+	ctx := context.Background()
+	_, _ = c.CreateBucket(ctx, "abc")
+
+	if _, err := c.PutMultipart(ctx, "abc", "k", errReader{}, filex.PutOptions{}, 2, 1); err == nil {
+		t.Fatal("读取失败应报错")
+	}
+	// 部件上传失败（worker 错误）
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		q := req.URL.Query()
+		switch q.Get("upload") {
+		case "initiate":
+			return attachReq(jsonResponse(http.StatusOK, proto.ToUploadJSON(filex.UploadInfo{UploadID: "u1"})), req)
+		case "abort":
+			return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+		case "part":
+			return nil, errors.New("部件传输失败")
+		}
+		return attachReq(jsonResponse(http.StatusOK, proto.ToObjectJSON(filex.ObjectInfo{ETag: "e"})), req)
+	})
+	c2, _ := New("https://example.com", WithHTTPClient(&http.Client{Transport: rt}))
+	if _, err := c2.PutMultipart(ctx, "abc", "k3", strings.NewReader("a"), filex.PutOptions{}, 1, 1); err == nil {
+		t.Fatal("部件失败应报错")
+	}
+
+	// 部件失败且发生在喂入过程中（多部件场景）
+	c4, _ := New("https://example.com", WithHTTPClient(&http.Client{Transport: rt}))
+	if _, err := c4.PutMultipart(ctx, "abc", "k5",
+		strings.NewReader(strings.Repeat("a", 100)), filex.PutOptions{}, 1, 1); err == nil {
+		t.Fatal("喂入过程部件失败应报错")
+	}
+
+	// 完成失败
+	rt2 := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		q := req.URL.Query()
+		switch q.Get("upload") {
+		case "initiate":
+			return attachReq(jsonResponse(http.StatusOK, proto.ToUploadJSON(filex.UploadInfo{UploadID: "u1"})), req)
+		case "part":
+			return attachReq(jsonResponse(http.StatusOK, proto.ToPartJSON(filex.PartInfo{PartNumber: 1})), req)
+		case "complete":
+			return &http.Response{StatusCode: http.StatusInternalServerError, Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{"code":"filex_storage_failed","message":"合并失败"}`)), Request: req}, nil
+		case "abort":
+			return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+		}
+		return attachReq(jsonResponse(http.StatusOK, proto.ToObjectJSON(filex.ObjectInfo{ETag: "e"})), req)
+	})
+	c3, _ := New("https://example.com", WithHTTPClient(&http.Client{Transport: rt2}))
+	if _, err := c3.PutMultipart(ctx, "abc", "k4", strings.NewReader("a"), filex.PutOptions{}, 1, 1); err == nil {
+		t.Fatal("完成失败应报错")
+	}
+}
+
+func jsonResponse(status int, v any) *http.Response {
+	data, _ := json.Marshal(v)
+	return &http.Response{
+		StatusCode: status,
+		Header:     http.Header{"Content-Type": {"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(data)),
+	}
+}
+
+func attachReq(resp *http.Response, req *http.Request) (*http.Response, error) {
+	resp.Request = req
+	return resp, nil
 }
 
 func TestClientWireJSON(t *testing.T) {

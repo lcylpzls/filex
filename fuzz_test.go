@@ -32,3 +32,29 @@ func FuzzDecodeObjectMeta(f *testing.F) {
 		_, _ = decodeObjectMeta(data)
 	})
 }
+
+func FuzzDecodeUploadMeta(f *testing.F) {
+	for _, seed := range []string{
+		`{"upload_id":"u1","bucket":"abc","key":"k"}`,
+		`{`,
+		`{"upload_id":"u1"}`,
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = decodeUploadMeta(data)
+	})
+}
+
+func FuzzDecodePartMeta(f *testing.F) {
+	for _, seed := range []string{
+		`{"part_number":1,"size":1,"sha256":"` + strings.Repeat("a", 64) + `"}`,
+		`{`,
+		`{"part_number":0}`,
+	} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		_, _ = decodePartMeta(data)
+	})
+}

@@ -80,3 +80,29 @@ func TestErrorBodyJSON(t *testing.T) {
 		t.Fatalf("错误体往返不符：%+v", back)
 	}
 }
+
+func TestUploadWireRoundTrip(t *testing.T) {
+	now := time.Now().UTC()
+	u := filex.UploadInfo{UploadID: "u1", Bucket: "abc", Key: "k", CreatedAt: now}
+	back := ToUploadJSON(u).ToFilex()
+	if back.UploadID != "u1" || back.Key != "k" || !back.CreatedAt.Equal(now) {
+		t.Fatalf("上传会话往返不符：%+v", back)
+	}
+}
+
+func TestPartWireRoundTrip(t *testing.T) {
+	now := time.Now().UTC()
+	p := filex.PartInfo{PartNumber: 2, Size: 10, SHA256: "sha", UpdatedAt: now}
+	back := ToPartJSON(p).ToFilex()
+	if back.PartNumber != 2 || back.Size != 10 || back.SHA256 != "sha" || !back.UpdatedAt.Equal(now) {
+		t.Fatalf("部件往返不符：%+v", back)
+	}
+}
+
+func TestPartListWireRoundTrip(t *testing.T) {
+	parts := []filex.PartInfo{{PartNumber: 1, Size: 3}, {PartNumber: 2, Size: 4}}
+	back := ToPartListJSON(parts).ToFilex()
+	if len(back) != 2 || back[0].PartNumber != 1 || back[1].Size != 4 {
+		t.Fatalf("部件列表往返不符：%+v", back)
+	}
+}

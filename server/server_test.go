@@ -125,6 +125,51 @@ func TestServerLifecycle(t *testing.T) {
 	}
 }
 
+func TestServerMultipartLifecycle(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	ctx := context.Background()
+	c, _ := client.New(ts.URL)
+	_, _ = c.CreateBucket(ctx, "abc")
+
+	up, err := c.InitiateMultipartUpload(ctx, "abc", "big", filex.PutOptions{Metadata: map[string]string{"m": "1"}})
+	if err != nil {
+		t.Fatalf("Initiate 失败：%v", err)
+	}
+	if _, err := c.UploadPart(ctx, "abc", "big", up.UploadID, 2, strings.NewReader("bbb")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.UploadPart(ctx, "abc", "big", up.UploadID, 1, strings.NewReader("aaa")); err != nil {
+		t.Fatal(err)
+	}
+	parts, err := c.ListParts(ctx, "abc", "big", up.UploadID)
+	if err != nil || len(parts) != 2 {
+		t.Fatalf("ListParts 不符：%+v, %v", parts, err)
+	}
+	info, err := c.CompleteMultipartUpload(ctx, "abc", "big", up.UploadID)
+	if err != nil {
+		t.Fatalf("Complete 失败：%v", err)
+	}
+	if info.ETag != sha256Hex("aaabbb") {
+		t.Fatalf("合并 ETag 不符：%s", info.ETag)
+	}
+	if info.Metadata["m"] != "1" {
+		t.Fatalf("元数据未保留：%+v", info.Metadata)
+	}
+
+	// 中止流程
+	up2, err := c.InitiateMultipartUpload(ctx, "abc", "abort", filex.PutOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = c.UploadPart(ctx, "abc", "abort", up2.UploadID, 1, strings.NewReader("x"))
+	if err := c.AbortMultipartUpload(ctx, "abc", "abort", up2.UploadID); err != nil {
+		t.Fatalf("Abort 失败：%v", err)
+	}
+	if _, err := c.Get(ctx, "abc", "abort", filex.GetOptions{}); err == nil {
+		t.Fatal("中止后对象不应存在")
+	}
+}
+
 func TestServerRawHTTP(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	ctx := context.Background()
@@ -360,6 +405,38 @@ func (f *fakeStore) List(context.Context, string, filex.ListOptions) (filex.List
 	return filex.ListResult{}, nil
 }
 
+func (f *fakeStore) InitiateMultipartUpload(context.Context, string, string, filex.PutOptions) (filex.UploadInfo, error) {
+	if f.putErr != nil {
+		return filex.UploadInfo{}, f.putErr
+	}
+	return filex.UploadInfo{UploadID: "u1"}, nil
+}
+
+func (f *fakeStore) UploadPart(context.Context, string, string, string, int, io.Reader) (filex.PartInfo, error) {
+	if f.putErr != nil {
+		return filex.PartInfo{}, f.putErr
+	}
+	return filex.PartInfo{PartNumber: 1}, nil
+}
+
+func (f *fakeStore) CompleteMultipartUpload(context.Context, string, string, string) (filex.ObjectInfo, error) {
+	if f.putErr != nil {
+		return filex.ObjectInfo{}, f.putErr
+	}
+	return f.headInfo, nil
+}
+
+func (f *fakeStore) AbortMultipartUpload(context.Context, string, string, string) error {
+	return f.deleteErr
+}
+
+func (f *fakeStore) ListParts(context.Context, string, string, string) ([]filex.PartInfo, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return []filex.PartInfo{{PartNumber: 1}}, nil
+}
+
 func TestServerHandlerErrorBranches(t *testing.T) {
 	injected := errors.New("注入错误")
 	f := &fakeStore{
@@ -389,6 +466,11 @@ func TestServerHandlerErrorBranches(t *testing.T) {
 		{http.MethodGet, "/filex/v1/buckets/abc/objects/k", nil},
 		{http.MethodHead, "/filex/v1/buckets/abc/objects/k", nil},
 		{http.MethodDelete, "/filex/v1/buckets/abc/objects/k", nil},
+		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?upload=initiate", nil},
+		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?upload=part&upload-id=u&part-number=1", strings.NewReader("v")},
+		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?upload=complete&upload-id=u", nil},
+		{http.MethodGet, "/filex/v1/buckets/abc/objects/k?upload=parts&upload-id=u", nil},
+		{http.MethodDelete, "/filex/v1/buckets/abc/objects/k?upload=abort&upload-id=u", nil},
 	}
 	for _, c := range cases {
 		req, err := http.NewRequest(c.method, ts.URL+c.path, c.body)
@@ -447,6 +529,27 @@ func TestServerInvalidInputBranches(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("合法 limit 状态码不符：%d", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc/objects/k?upload=part&part-number=abc", strings.NewReader("v"))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("非法 part-number 状态码不符：%d", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc/objects/k?upload=initiate", nil)
+	req.Header.Set(proto.HeaderMetadata, "{")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("initiate 非法元数据状态码不符：%d", resp.StatusCode)
 	}
 
 	for _, c := range []struct{ method, path string }{

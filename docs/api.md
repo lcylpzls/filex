@@ -147,3 +147,38 @@ func (c *Client) List(...) (filex.ListResult, error)
 - v0.6.0：`Lifecycle`（过期清理）。
 
 具体签名在对应版本设计定稿后冻结。
+
+## 4.1 分片上传 API（v0.3.0）
+
+```go
+func (s *Store) InitiateMultipartUpload(ctx context.Context, bucket, key string,
+    opts PutOptions) (UploadInfo, error)
+func (s *Store) UploadPart(ctx context.Context, bucket, key, uploadID string,
+    partNumber int, r io.Reader) (PartInfo, error)
+func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key,
+    uploadID string) (ObjectInfo, error)
+func (s *Store) AbortMultipartUpload(ctx context.Context, bucket, key,
+    uploadID string) error
+func (s *Store) ListParts(ctx context.Context, bucket, key,
+    uploadID string) ([]PartInfo, error)
+```
+
+客户端在 `client.Client` 上提供同名方法，并新增：
+
+```go
+func (c *Client) PutMultipart(ctx context.Context, bucket, key string,
+    r io.Reader, opts filex.PutOptions, partSize int64,
+    concurrency int) (filex.ObjectInfo, error)
+```
+
+`PutMultipart` 默认部件 16 MiB、并发 4；失败自动 Abort。
+
+协议端点（PUT 承载）：
+
+```text
+PUT    /filex/v1/buckets/{bucket}/objects/{key}?upload=initiate
+PUT    /filex/v1/buckets/{bucket}/objects/{key}?upload=part&upload-id=..&part-number=..
+PUT    /filex/v1/buckets/{bucket}/objects/{key}?upload=complete&upload-id=..
+GET    /filex/v1/buckets/{bucket}/objects/{key}?upload=parts&upload-id=..
+DELETE /filex/v1/buckets/{bucket}/objects/{key}?upload=abort&upload-id=..
+```

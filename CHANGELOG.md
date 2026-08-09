@@ -1,5 +1,25 @@
 # 更新日志
 
+## [v0.3.0] - 2026-08-10
+
+### 新增
+
+- 引擎分片上传：
+  - `InitiateMultipartUpload` / `UploadPart` / `CompleteMultipartUpload` /
+    `AbortMultipartUpload` / `ListParts`；
+  - 部件级 SHA256、乱序上传、同部件幂等覆盖、断点续传（会话保留）；
+  - 合并时校验部件连续性、大小与总数上限，成功后原子提交并清理会话；
+- 协议层分片端点（`upload=initiate|part|complete`、`upload=parts`、
+  `upload=abort`）与线格式（UploadInfo / PartInfo / PartList）；
+- 客户端分片方法 + `PutMultipart`：自动切分、并发上传、失败自动中止；
+- 会话/部件元数据 fuzz 目标接入 CI。
+
+### 质量
+
+- 根包与 proto / server / client 语句覆盖率均 100%；
+  race / vet / staticcheck / fuzz / govulncheck 全绿；
+- CI fuzz 单目标时长调整为 5s，消除上下文超时抖动。
+
 ## [v0.2.0] - 2026-08-10
 
 ### 新增

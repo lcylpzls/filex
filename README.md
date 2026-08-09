@@ -47,6 +47,8 @@ func main() {
   元数据、并发安全、错误码与日志）。
 - v0.2.0：自研协议服务端与客户端（流式 Put/Get、Range、条件请求、
   分页列表、统一错误 JSON、请求 ID）。
+- v0.3.0：分片上传与断点续传（部件级 SHA256、乱序/覆盖、并发上传、
+  失败自动中止）。
 
 详细规划见 [docs/roadmap.md](docs/roadmap.md)，设计见 [docs/design.md](docs/design.md)。
 
