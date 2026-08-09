@@ -80,14 +80,21 @@ func (s *Store) readVersionMetas(bucket, key string) ([]objectMeta, error) {
 	return metas, nil
 }
 
-// findLatestVersionMeta 返回最新且未删除的版本元数据。
-func (s *Store) findLatestVersionMeta(bucket, key string) (*objectMeta, error) {
+// readCurrentMeta 读取当前可见元数据；版本化桶无版本时回退扁平对象，
+// 兼容「先建对象再开版本化」的历史数据。
+func (s *Store) readCurrentMeta(bucket, key string, versioning bool) (*objectMeta, error) {
+	if !versioning {
+		return readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
+	}
 	metas, err := s.readVersionMetas(bucket, key)
 	if err != nil {
 		return nil, err
 	}
+	if len(metas) == 0 {
+		return readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
+	}
 	sortMetasNewestFirst(metas)
-	if len(metas) == 0 || metas[0].Deleted {
+	if metas[0].Deleted {
 		return nil, os.ErrNotExist
 	}
 	return &metas[0], nil
@@ -156,6 +163,20 @@ func (s *Store) collectCurrentMetas(bucket string) ([]objectMeta, error) {
 		if cur, ok := group[metas[0].Key]; !ok || metas[0].UpdatedAt.After(cur.UpdatedAt) {
 			group[metas[0].Key] = metas[0]
 		}
+	}
+	// 兼容历史扁平对象：无版本化版本时纳入当前视图
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		meta, err := readObjectMeta(s.fs, filepath.Join(s.objectsDir(bucket), e.Name()))
+		if err != nil {
+			continue
+		}
+		if _, ok := group[meta.Key]; ok {
+			continue
+		}
+		group[meta.Key] = *meta
 	}
 	metas := make([]objectMeta, 0, len(group))
 	for _, m := range group {

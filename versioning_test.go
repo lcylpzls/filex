@@ -324,3 +324,67 @@ func TestVersioningHelpers(t *testing.T) {
 		t.Fatalf("回退版本 ID 不符：%s", id)
 	}
 }
+
+func TestVersioningLegacyFallback(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	_, _ = s.Put(ctx, "abc", "legacy", strings.NewReader("old"), PutOptions{})
+	_, _ = s.SetBucketVersioning(ctx, "abc", true)
+
+	obj, err := s.Get(ctx, "abc", "legacy", GetOptions{})
+	if err != nil {
+		t.Fatalf("开启版本化后旧对象应可读：%v", err)
+	}
+	data, _ := io.ReadAll(obj)
+	_ = obj.Close()
+	if string(data) != "old" {
+		t.Fatalf("旧对象内容不符：%s", data)
+	}
+	result, _ := s.List(ctx, "abc", ListOptions{})
+	if len(result.Objects) != 1 || result.Objects[0].Key != "legacy" {
+		t.Fatalf("旧对象应出现在列表：%+v", result.Objects)
+	}
+
+	_, _ = s.Put(ctx, "abc", "legacy", strings.NewReader("new"), PutOptions{})
+	result2, _ := s.List(ctx, "abc", ListOptions{})
+	if len(result2.Objects) != 1 || result2.Objects[0].Key != "legacy" {
+		t.Fatalf("版本化后列表应取最新版本：%+v", result2.Objects)
+	}
+	obj2, _ := s.Get(ctx, "abc", "legacy", GetOptions{})
+	data2, _ := io.ReadAll(obj2)
+	_ = obj2.Close()
+	if string(data2) != "new" {
+		t.Fatalf("新版本内容不符：%s", data2)
+	}
+	_ = s.Delete(ctx, "abc", "legacy")
+	if _, err := s.Get(ctx, "abc", "legacy", GetOptions{}); err == nil {
+		t.Fatal("删除标记后旧对象不可见")
+	}
+	versions, _ := s.ListVersions(ctx, "abc", "legacy")
+	if err := s.DeleteVersion(ctx, "abc", "legacy", versions[0].VersionID); err != nil {
+		t.Fatal(err)
+	}
+	obj3, err := s.Get(ctx, "abc", "legacy", GetOptions{})
+	if err != nil {
+		t.Fatalf("删除标记移除后应回到新版本：%v", err)
+	}
+	data3, _ := io.ReadAll(obj3)
+	_ = obj3.Close()
+	if string(data3) != "new" {
+		t.Fatalf("删除标记移除后内容不符：%s", data3)
+	}
+	versions, _ = s.ListVersions(ctx, "abc", "legacy")
+	if err := s.DeleteVersion(ctx, "abc", "legacy", versions[0].VersionID); err != nil {
+		t.Fatal(err)
+	}
+	obj3, err = s.Get(ctx, "abc", "legacy", GetOptions{})
+	if err != nil {
+		t.Fatalf("删除标记移除后应回退旧对象：%v", err)
+	}
+	data3, _ = io.ReadAll(obj3)
+	_ = obj3.Close()
+	if string(data3) != "old" {
+		t.Fatalf("回退内容不符：%s", data3)
+	}
+}

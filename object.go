@@ -194,7 +194,7 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (*
 	var meta *objectMeta
 	var dataPath string
 	if versioning {
-		meta, err = s.findLatestVersionMeta(bucket, key)
+		meta, err = s.readCurrentMeta(bucket, key, true)
 		if os.IsNotExist(err) {
 			s.metrics.IncError(bucket, string(CodeObjectNotFound))
 			return nil, newCode(CodeObjectNotFound, "对象不存在")
@@ -203,9 +203,9 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (*
 			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
 			return nil, wrapCode(err, CodeMetadataCorrupt, "读取版本元数据失败")
 		}
-		dataPath = s.versionDataPath(bucket, key, meta.VersionID)
+		dataPath, _ = s.objectPaths(bucket, key, meta.VersionID)
 	} else {
-		meta, err = readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
+		meta, err = s.readCurrentMeta(bucket, key, false)
 		if os.IsNotExist(err) {
 			s.metrics.IncError(bucket, string(CodeObjectNotFound))
 			return nil, newCode(CodeObjectNotFound, "对象不存在")
@@ -328,7 +328,7 @@ func (s *Store) Head(ctx context.Context, bucket, key string) (ObjectInfo, error
 	}
 	var meta *objectMeta
 	if versioning {
-		meta, err = s.findLatestVersionMeta(bucket, key)
+		meta, err = s.readCurrentMeta(bucket, key, true)
 		if os.IsNotExist(err) {
 			s.metrics.IncError(bucket, string(CodeObjectNotFound))
 			return ObjectInfo{}, newCode(CodeObjectNotFound, "对象不存在")
@@ -338,7 +338,7 @@ func (s *Store) Head(ctx context.Context, bucket, key string) (ObjectInfo, error
 			return ObjectInfo{}, wrapCode(err, CodeMetadataCorrupt, "读取版本元数据失败")
 		}
 	} else {
-		meta, err = readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
+		meta, err = s.readCurrentMeta(bucket, key, false)
 		if os.IsNotExist(err) {
 			s.metrics.IncError(bucket, string(CodeObjectNotFound))
 			return ObjectInfo{}, newCode(CodeObjectNotFound, "对象不存在")
@@ -378,7 +378,7 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) error {
 		return wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
 	}
 	if versioning {
-		latest, err := s.findLatestVersionMeta(bucket, key)
+		latest, err := s.readCurrentMeta(bucket, key, true)
 		if os.IsNotExist(err) {
 			s.metrics.IncError(bucket, string(CodeObjectNotFound))
 			return newCode(CodeObjectNotFound, "对象不存在")

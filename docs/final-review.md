@@ -14,7 +14,7 @@
 | 跨平台 | Windows/macOS/Linux 三平台 CI + Linux 多发行版容器矩阵 |
 | 测试 | 四包语句覆盖率 100%；race（全平台）/ vet / staticcheck / fuzz / govulncheck 全绿；CI 乱序测试 |
 | 数据完整性 | VerifyObject / VerifyAll 全量审计；上下文取消归一 `filex_cancelled` |
-| 运维 | 分片会话 TTL、DeleteBucket 活动上传保护、孤儿巡检 |
+| 运维 | 分片会话 TTL、DeleteBucket 活动上传保护、孤儿巡检、BucketStats、运维手册 |
 | 端到端 | net/http 与 webx+httpx HTTP/3 双示例 |
 | 文档 | README / design / architecture / api / roadmap / ERRORS / SECURITY / BENCHMARKS / 终审 |
 | 依赖 | 核心仅 errx + logx；示例隔离在独立模块 |
@@ -32,5 +32,5 @@
 ## 1.0 候选标准
 
 - API 已冻结（见 [api-v0.10.0.md](api-v0.10.0.md)）；
-- 全部规划与自检打磨完成（v0.1.0 → v0.13.0）；
+- 全部规划与自检打磨完成（v0.1.0 → v0.14.0）；
 - 无已知 P0/P1 问题；发布前仅需用户确认。

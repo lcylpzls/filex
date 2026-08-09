@@ -406,6 +406,22 @@ func TestRemoveVersionFilesEmptyDir(t *testing.T) {
 	}
 }
 
+func TestCollectCurrentMetasCorruptFlat(t *testing.T) {
+	s, _ := newStore(t)
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	_, _ = s.Put(ctx, "abc", "k", strings.NewReader("v"), PutOptions{})
+	_, _ = s.SetBucketVersioning(ctx, "abc", true)
+	_ = os.WriteFile(s.objectMetaPath("abc", "k"), []byte("{"), 0o644)
+	result, err := s.List(ctx, "abc", ListOptions{})
+	if err != nil {
+		t.Fatalf("损坏扁平元数据应跳过：%v", err)
+	}
+	if len(result.Objects) != 0 {
+		t.Fatalf("损坏扁平元数据不应返回：%+v", result.Objects)
+	}
+}
+
 func TestSortMetasTieBreak(t *testing.T) {
 	s, _ := newStore(t)
 	mustBucket(t, s, "abc")

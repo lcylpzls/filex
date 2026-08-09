@@ -246,8 +246,14 @@ func (c *Client) Health(ctx context.Context) error
 func (s *Store) VerifyObject(ctx context.Context, bucket, key string) error
 func (s *Store) VerifyAll(ctx context.Context, concurrency int) (IntegrityReport, error)
 func (s *Store) BucketUsage(ctx context.Context, bucket string) (int64, error)
+func (s *Store) BucketStats(ctx context.Context, bucket string) (BucketStats, error)
 ```
 
 协议端点：`GET /filex/v1/health` 返回 `{"status":"ok"}`。
 
 `HandlerConfig.Metrics` 注入后按请求状态统计 `http_request` 与错误码。
+
+## 5. 运维
+
+见 [operations.md](operations.md)：备份恢复、日常巡检、健康检查、
+安全基线与升级流程。

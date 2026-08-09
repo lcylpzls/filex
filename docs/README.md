@@ -10,4 +10,5 @@
 
 另见仓库根目录：[ERRORS.md](../ERRORS.md)（错误码手册）、
 [BENCHMARKS.md](../BENCHMARKS.md)（基准）、
-[api-v0.7.0.md](api-v0.7.0.md)（API 冻结快照）。
+[api-v0.7.0.md](api-v0.7.0.md)（API 冻结快照）、
+[operations.md](operations.md)（运维手册）。
