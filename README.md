@@ -52,6 +52,8 @@ func main() {
 - v0.4.0：版本化与软删除、Copy/Move、桶配额（超限自动回滚）。
 - v0.5.0：服务端静态加密（AES-256-CTR + DEK 主密钥包装）、
   Bearer/HMAC/回调鉴权、防重放与审计。
+- v0.6.0：生命周期（过期清理/版本收敛）、孤儿巡检、健康检查、
+  服务端请求指标与基准。
 
 详细规划见 [docs/roadmap.md](docs/roadmap.md)，设计见 [docs/design.md](docs/design.md)。
 
@@ -72,6 +74,7 @@ filex/
 ├── examples/
 │   ├── basic/             # 引擎基础用法（独立模块）
 │   └── protocol/          # 服务端 + 客户端端到端（独立模块）
+├── BENCHMARKS.md          # 基准测试方法与结果
 └── README.md
 ```
 

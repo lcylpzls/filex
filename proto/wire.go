@@ -8,11 +8,13 @@ import (
 
 // BucketInfoJSON 是桶信息的线格式。
 type BucketInfoJSON struct {
-	Name       string    `json:"name"`
-	Versioning bool      `json:"versioning,omitempty"`
-	Quota      int64     `json:"quota,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Name        string    `json:"name"`
+	Versioning  bool      `json:"versioning,omitempty"`
+	Quota       int64     `json:"quota,omitempty"`
+	ExpireDays  int       `json:"expire_days,omitempty"`
+	MaxVersions int       `json:"max_versions,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // ObjectInfoJSON 是对象信息的线格式。
@@ -74,11 +76,13 @@ type ObjectListJSON struct {
 // ToBucketJSON 转换 filex.BucketInfo 为线格式。
 func ToBucketJSON(b filex.BucketInfo) BucketInfoJSON {
 	return BucketInfoJSON{
-		Name:       b.Name,
-		Versioning: b.Versioning,
-		Quota:      b.Quota,
-		CreatedAt:  b.CreatedAt,
-		UpdatedAt:  b.UpdatedAt,
+		Name:        b.Name,
+		Versioning:  b.Versioning,
+		Quota:       b.Quota,
+		ExpireDays:  b.Lifecycle.ExpireDays,
+		MaxVersions: b.Lifecycle.MaxVersions,
+		CreatedAt:   b.CreatedAt,
+		UpdatedAt:   b.UpdatedAt,
 	}
 }
 
@@ -88,8 +92,12 @@ func (b BucketInfoJSON) ToFilex() filex.BucketInfo {
 		Name:       b.Name,
 		Versioning: b.Versioning,
 		Quota:      b.Quota,
-		CreatedAt:  b.CreatedAt,
-		UpdatedAt:  b.UpdatedAt,
+		Lifecycle: filex.LifecycleOptions{
+			ExpireDays:  b.ExpireDays,
+			MaxVersions: b.MaxVersions,
+		},
+		CreatedAt: b.CreatedAt,
+		UpdatedAt: b.UpdatedAt,
 	}
 }
 

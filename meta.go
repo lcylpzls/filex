@@ -12,11 +12,12 @@ import (
 
 // bucketMeta 是桶元数据文件格式。
 type bucketMeta struct {
-	Name       string    `json:"name"`
-	Versioning bool      `json:"versioning,omitempty"`
-	Quota      int64     `json:"quota,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Name       string         `json:"name"`
+	Versioning bool           `json:"versioning,omitempty"`
+	Quota      int64          `json:"quota,omitempty"`
+	Lifecycle  *lifecycleMeta `json:"lifecycle,omitempty"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
 }
 
 // objectMeta 是对象元数据文件格式。

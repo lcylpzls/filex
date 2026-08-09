@@ -557,6 +557,8 @@ func (f *fakeStore) Move(context.Context, string, string, string, string) (filex
 	return f.headInfo, nil
 }
 
+func (f *fakeStore) Health(context.Context) error { return f.listBucketsErr }
+
 func TestServerHandlerErrorBranches(t *testing.T) {
 	injected := errors.New("注入错误")
 	f := &fakeStore{

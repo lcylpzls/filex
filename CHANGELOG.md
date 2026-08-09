@@ -1,5 +1,24 @@
 # 更新日志
 
+## [v0.6.0] - 2026-08-10
+
+### 新增
+
+- 生命周期管理：
+  - `SetBucketLifecycle`（ExpireDays / MaxVersions）与 `RunLifecycle`
+    （过期清理 + 版本收敛，支持版本化桶）；
+- 孤儿巡检：`SweepOrphans` 清理孤儿数据、临时文件与空版本目录；
+- 健康检查：`Store.Health` 与协议端点 `GET /filex/v1/health`，
+  客户端 `Health`；
+- 服务端请求指标：`HandlerConfig.Metrics` 统计成功/错误请求；
+- 基准测试（Put/Get/List）与 `BENCHMARKS.md`；
+- Bucket 线格式携带生命周期字段。
+
+### 质量
+
+- 根包与 proto / server / client 语句覆盖率均 100%；
+  race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.5.0] - 2026-08-10
 
 ### 新增

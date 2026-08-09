@@ -230,3 +230,18 @@ PUT    /filex/v1/buckets/{bucket}/objects/{key}?move=1&source-bucket=..&source-k
 - HMAC：`X-Filex-Timestamp`（Unix 秒）+ `X-Filex-Signature`；
 - 签名载荷：`<METHOD>\n<路径与查询>\n<时间戳>`，HMAC-SHA256 十六进制；
 - 时间戳窗口 ±5 分钟，防重放。
+
+## 4.3 生命周期与可观测 API（v0.6.0）
+
+```go
+func (s *Store) SetBucketLifecycle(ctx context.Context, bucket string,
+    opts LifecycleOptions) (BucketInfo, error)
+func (s *Store) RunLifecycle(ctx context.Context, bucket string) (LifecycleReport, error)
+func (s *Store) SweepOrphans(ctx context.Context) (SweepReport, error)
+func (s *Store) Health(ctx context.Context) error
+func (c *Client) Health(ctx context.Context) error
+```
+
+协议端点：`GET /filex/v1/health` 返回 `{"status":"ok"}`。
+
+`HandlerConfig.Metrics` 注入后按请求状态统计 `http_request` 与错误码。

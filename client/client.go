@@ -319,6 +319,14 @@ func (c *Client) Move(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey 
 	return out.ToFilex(), nil
 }
 
+// Health 检查服务端健康状态。
+func (c *Client) Health(ctx context.Context) error {
+	var out struct {
+		Status string `json:"status"`
+	}
+	return c.doJSON(ctx, http.MethodGet, proto.BasePath+"/health", nil, nil, &out)
+}
+
 // InitiateMultipartUpload 创建分片上传会话。
 func (c *Client) InitiateMultipartUpload(ctx context.Context, bucket, key string, opts filex.PutOptions) (filex.UploadInfo, error) {
 	hdr := http.Header{}

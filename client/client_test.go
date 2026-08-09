@@ -185,6 +185,9 @@ func TestClientDoAndHeaderBranches(t *testing.T) {
 	if _, err := c.Head(context.Background(), "abc", "k"); err == nil {
 		t.Fatal("Head 传输失败应报错")
 	}
+	if err := c.Health(context.Background()); err == nil {
+		t.Fatal("Health 传输失败应报错")
+	}
 	if err := c.DeleteBucket(context.Background(), "abc"); err == nil {
 		t.Fatal("doJSON 传输失败应报错")
 	}

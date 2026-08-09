@@ -77,6 +77,14 @@ func (s *Store) Close() error {
 	return nil
 }
 
+// Health 检查存储引擎可用性。
+func (s *Store) Health(ctx context.Context) error {
+	if _, err := s.fs.ReadDir(s.bucketsDir); err != nil {
+		return wrapCode(err, CodeStorageFailed, "存储不可用")
+	}
+	return nil
+}
+
 // CreateBucket 创建桶。
 func (s *Store) CreateBucket(ctx context.Context, name string) (BucketInfo, error) {
 	if err := validateBucketName(name); err != nil {
@@ -241,7 +249,18 @@ func (s *Store) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 }
 
 func bucketInfoFromMeta(m bucketMeta) BucketInfo {
-	return BucketInfo(m)
+	lc := LifecycleOptions{}
+	if m.Lifecycle != nil {
+		lc = LifecycleOptions{ExpireDays: m.Lifecycle.ExpireDays, MaxVersions: m.Lifecycle.MaxVersions}
+	}
+	return BucketInfo{
+		Name:       m.Name,
+		Versioning: m.Versioning,
+		Quota:      m.Quota,
+		Lifecycle:  lc,
+		CreatedAt:  m.CreatedAt,
+		UpdatedAt:  m.UpdatedAt,
+	}
 }
 
 // bucketDir 返回桶目录。

@@ -58,6 +58,7 @@ type BucketInfo struct {
 	Name       string
 	Versioning bool
 	Quota      int64 // 0 表示不限
+	Lifecycle  LifecycleOptions
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

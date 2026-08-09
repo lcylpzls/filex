@@ -47,6 +47,7 @@ type Store interface {
 	ListVersions(ctx context.Context, bucket, key string) ([]filex.ObjectInfo, error)
 	Copy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (filex.ObjectInfo, error)
 	Move(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (filex.ObjectInfo, error)
+	Health(ctx context.Context) error
 }
 
 // HandlerConfig 是协议处理器的配置。
@@ -63,6 +64,8 @@ type HandlerConfig struct {
 	HMACSecret []byte
 	// Audit 是可选审计回调。
 	Audit func(AuditEvent)
+	// Metrics 是可选请求指标。
+	Metrics filex.Metrics
 }
 
 // AuditEvent 是审计事件。
@@ -89,6 +92,7 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 		panic("filex/server: Store 不能为空")
 	}
 	h := &handler{cfg: cfg, mux: http.NewServeMux()}
+	h.mux.HandleFunc("GET "+proto.BasePath+"/health", h.handleHealth)
 	h.mux.HandleFunc("PUT "+proto.BasePath+"/buckets/{bucket}", h.handleCreateBucket)
 	h.mux.HandleFunc("GET "+proto.BasePath+"/buckets", h.handleListBuckets)
 	h.mux.HandleFunc("HEAD "+proto.BasePath+"/buckets/{bucket}", h.handleHeadBucket)
@@ -133,6 +137,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				At:        time.Now(),
 			})
 		}
+		if h.cfg.Metrics != nil {
+			if sw.status >= 400 {
+				h.cfg.Metrics.IncError("", strconv.Itoa(sw.status))
+			} else {
+				h.cfg.Metrics.Add("", "http_request", 1)
+			}
+		}
 	}()
 	var ok bool
 	subject, ok = h.authenticate(sw, r, rid)
@@ -140,6 +151,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.mux.ServeHTTP(sw, r)
+}
+
+func (h *handler) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if err := h.cfg.Store.Health(r.Context()); err != nil {
+		h.writeError(w, requestID(r), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // authenticate 执行可选的 Bearer / HMAC / 回调鉴权与防重放校验。
