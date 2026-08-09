@@ -128,9 +128,14 @@ func TestContextCancellation(t *testing.T) {
 	if err := wrapCtxErr(errors.New("普通错误")); err == nil {
 		t.Fatal("普通错误应原样返回")
 	}
-	// nil 上下文：直接透传读取器
-	if _, err := s.Put(nil, "abc", "nil-ctx", strings.NewReader("v"), PutOptions{}); err != nil {
-		t.Fatalf("nil 上下文写入失败：%v", err)
+}
+
+func TestContextReaderNilCtx(t *testing.T) {
+	r := newContextReader(nil, strings.NewReader("v"))
+	data := make([]byte, 1)
+	n, err := r.Read(data)
+	if err != nil || n != 1 || data[0] != 'v' {
+		t.Fatalf("nil 上下文应透传读取器：%d, %v", n, err)
 	}
 }
 

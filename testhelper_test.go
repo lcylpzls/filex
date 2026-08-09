@@ -23,7 +23,7 @@ func (f *fakeLogger) Error(msg string, _ logx.FieldGroup) {
 
 // fakeMetrics 记录指标打点。
 type fakeMetrics struct {
-	mu    sync.Mutex
+	mu   sync.Mutex
 	adds map[string]int64
 	errs map[string]int
 }
