@@ -173,6 +173,10 @@ func (s *Store) SweepOrphans(ctx context.Context) (SweepReport, error) {
 		}
 		for _, oe := range objEntries {
 			name := oe.Name()
+			if name == ".uploads" {
+				// 分片上传会话目录由上传流程管理，孤儿巡检不介入。
+				continue
+			}
 			if strings.HasSuffix(name, ".data") {
 				metaName := strings.TrimSuffix(name, ".data") + ".json"
 				if !fileExists(s.fs, filepath.Join(objectsDir, metaName)) {

@@ -190,4 +190,15 @@ func TestSweepOrphansMore(t *testing.T) {
 	if _, err := os.Stat(s.versionMetaPath("abc", "vk", info.VersionID)); err != nil {
 		t.Fatal("有效版本不应被删除")
 	}
+
+	// 活动分片会话目录不应被孤儿巡检删除
+	up, _ := s.InitiateMultipartUpload(ctx, "abc", "upload-key", PutOptions{})
+	_, _ = s.UploadPart(ctx, "abc", "upload-key", up.UploadID, 1, strings.NewReader("p"))
+	report, err = s.SweepOrphans(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(s.uploadMetaPath("abc", up.UploadID)); err != nil {
+		t.Fatal("活动分片会话不应被清理")
+	}
 }
