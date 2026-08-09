@@ -9,6 +9,7 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"sync/atomic"
 
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/logx"
@@ -23,6 +24,7 @@ type Store struct {
 	fs         fsOps
 	log        Logger
 	metrics    Metrics
+	closed     atomic.Bool
 }
 
 // New 创建 Store。
@@ -75,13 +77,24 @@ func New(cfg Config) (*Store, error) {
 	return s, nil
 }
 
-// Close 释放 Store 资源（当前无持有资源，保留接口兼容）。
+// Close 关闭 Store；关闭后所有操作返回 filex_closed。
 func (s *Store) Close() error {
+	s.closed.Store(true)
+	return nil
+}
+
+func (s *Store) ensureOpen() error {
+	if s.closed.Load() {
+		return newCode(CodeClosed, "存储已关闭")
+	}
 	return nil
 }
 
 // Health 检查存储引擎可用性。
 func (s *Store) Health(ctx context.Context) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if _, err := s.fs.ReadDir(s.bucketsDir); err != nil {
 		return wrapCode(err, CodeStorageFailed, "存储不可用")
 	}
@@ -90,6 +103,9 @@ func (s *Store) Health(ctx context.Context) error {
 
 // BucketUsage 返回桶内非删除对象的字节总量（含全部版本）。
 func (s *Store) BucketUsage(ctx context.Context, bucket string) (int64, error) {
+	if err := s.ensureOpen(); err != nil {
+		return 0, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return 0, err
 	}
@@ -103,6 +119,9 @@ func (s *Store) BucketUsage(ctx context.Context, bucket string) (int64, error) {
 
 // CreateBucket 创建桶。
 func (s *Store) CreateBucket(ctx context.Context, name string) (BucketInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return BucketInfo{}, err
+	}
 	if err := validateBucketName(name); err != nil {
 		return BucketInfo{}, err
 	}
@@ -140,6 +159,9 @@ func (s *Store) CreateBucket(ctx context.Context, name string) (BucketInfo, erro
 
 // SetBucketVersioning 开关桶版本化。
 func (s *Store) SetBucketVersioning(ctx context.Context, name string, enabled bool) (BucketInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return BucketInfo{}, err
+	}
 	if err := validateBucketName(name); err != nil {
 		return BucketInfo{}, err
 	}
@@ -166,6 +188,9 @@ func (s *Store) SetBucketVersioning(ctx context.Context, name string, enabled bo
 
 // SetBucketQuota 设置桶配额（0 表示不限）。
 func (s *Store) SetBucketQuota(ctx context.Context, name string, quota int64) (BucketInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return BucketInfo{}, err
+	}
 	if err := validateBucketName(name); err != nil {
 		return BucketInfo{}, err
 	}
@@ -195,6 +220,9 @@ func (s *Store) SetBucketQuota(ctx context.Context, name string, quota int64) (B
 
 // DeleteBucket 删除空桶；存在对象时返回 filex_bucket_not_empty。
 func (s *Store) DeleteBucket(ctx context.Context, name string) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if err := validateBucketName(name); err != nil {
 		return err
 	}
@@ -230,6 +258,9 @@ func (s *Store) DeleteBucket(ctx context.Context, name string) error {
 
 // HeadBucket 读取桶元数据。
 func (s *Store) HeadBucket(ctx context.Context, name string) (BucketInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return BucketInfo{}, err
+	}
 	if err := validateBucketName(name); err != nil {
 		return BucketInfo{}, err
 	}
@@ -245,6 +276,9 @@ func (s *Store) HeadBucket(ctx context.Context, name string) (BucketInfo, error)
 
 // ListBuckets 返回全部桶，按名称排序。
 func (s *Store) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
 	entries, err := s.fs.ReadDir(s.bucketsDir)

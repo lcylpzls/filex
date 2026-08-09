@@ -14,6 +14,7 @@
 | `filex_not_modified` | 对象未修改（304 语义） | conflict | 304 |
 | `filex_precondition_failed` | 前置条件不满足（412 语义） | conflict | 412 |
 | `filex_cancelled` | 操作已取消 | cancelled | 499 |
+| `filex_closed` | 存储已关闭 | unavailable | 503 |
 | `filex_bucket_exists` | 桶已存在 | already_exists | 409 |
 | `filex_bucket_not_found` | 桶不存在 | not_found | 404 |
 | `filex_bucket_not_empty` | 桶非空 | conflict | 409 |

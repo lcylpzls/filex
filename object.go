@@ -20,6 +20,9 @@ import (
 
 // Put 写入对象。同一键并发写时以后完成者生效（原子 rename 保证完整）。
 func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts PutOptions) (ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return ObjectInfo{}, err
+	}
 	if r == nil {
 		return ObjectInfo{}, newCode(CodeInvalidArgument, "内容读取器不能为空")
 	}
@@ -168,6 +171,9 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 
 // Get 读取对象；opts.Verify 开启时 EOF 复验 SHA256。
 func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (*Object, error) {
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return nil, err
 	}
@@ -307,6 +313,9 @@ func (c *closeReader) Close() error {
 
 // Head 读取对象元数据，不打开内容。
 func (s *Store) Head(ctx context.Context, bucket, key string) (ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return ObjectInfo{}, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return ObjectInfo{}, err
 	}
@@ -357,6 +366,9 @@ func (s *Store) Head(ctx context.Context, bucket, key string) (ObjectInfo, error
 
 // Delete 删除对象。元数据先删，数据删除失败时交由孤儿清理。
 func (s *Store) Delete(ctx context.Context, bucket, key string) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return err
 	}
@@ -441,6 +453,9 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) error {
 
 // List 枚举对象，支持 prefix / marker / limit / delimiter。
 func (s *Store) List(ctx context.Context, bucket string, opts ListOptions) (ListResult, error) {
+	if err := s.ensureOpen(); err != nil {
+		return ListResult{}, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return ListResult{}, err
 	}
@@ -512,6 +527,9 @@ func (s *Store) List(ctx context.Context, bucket string, opts ListOptions) (List
 
 // Copy 复制对象（保留源内容类型与元数据）。
 func (s *Store) Copy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return ObjectInfo{}, err
+	}
 	obj, err := s.Get(ctx, srcBucket, srcKey, GetOptions{})
 	if err != nil {
 		return ObjectInfo{}, err
@@ -525,6 +543,9 @@ func (s *Store) Copy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey s
 
 // Move 移动对象（复制成功后删除源）。
 func (s *Store) Move(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return ObjectInfo{}, err
+	}
 	info, err := s.Copy(ctx, srcBucket, srcKey, dstBucket, dstKey)
 	if err != nil {
 		return ObjectInfo{}, err

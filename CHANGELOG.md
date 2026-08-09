@@ -1,5 +1,21 @@
 # 更新日志
 
+## [v0.16.0] - 2026-08-10
+
+### 新增
+
+- Store 关闭态：`Close` 后所有操作返回 `filex_closed`，重复关闭幂等；
+- 生命周期清理与孤儿巡检改为独占锁，消除清理与写入/读取并发的
+  文件删除竞争；
+- 协议新增 `GET /filex/v1/buckets/{bucket}`（桶信息），客户端
+  `GetBucket`；
+- HEAD 对象响应补 `Content-Length`。
+
+### 质量
+
+- 四包覆盖率保持 100%；race（全平台）/ vet / staticcheck / fuzz /
+  govulncheck 全绿。
+
 ## [v0.15.0] - 2026-08-10
 
 ### 新增

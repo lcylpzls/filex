@@ -95,6 +95,7 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 	h.mux.HandleFunc("GET "+proto.BasePath+"/health", h.handleHealth)
 	h.mux.HandleFunc("PUT "+proto.BasePath+"/buckets/{bucket}", h.handleCreateBucket)
 	h.mux.HandleFunc("GET "+proto.BasePath+"/buckets", h.handleListBuckets)
+	h.mux.HandleFunc("GET "+proto.BasePath+"/buckets/{bucket}", h.handleGetBucket)
 	h.mux.HandleFunc("HEAD "+proto.BasePath+"/buckets/{bucket}", h.handleHeadBucket)
 	h.mux.HandleFunc("DELETE "+proto.BasePath+"/buckets/{bucket}", h.handleDeleteBucket)
 	h.mux.HandleFunc("GET "+proto.BasePath+"/buckets/{bucket}/objects", h.handleListObjects)
@@ -290,6 +291,15 @@ func (h *handler) handleHeadBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *handler) handleGetBucket(w http.ResponseWriter, r *http.Request) {
+	info, err := h.cfg.Store.HeadBucket(r.Context(), r.PathValue("bucket"))
+	if err != nil {
+		h.writeError(w, requestID(r), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, proto.ToBucketJSON(info))
 }
 
 func (h *handler) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
@@ -520,6 +530,7 @@ func (h *handler) handleHeadObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeObjectHeaders(w, info)
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size, 10))
 	w.WriteHeader(http.StatusOK)
 }
 

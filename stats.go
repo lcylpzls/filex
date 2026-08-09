@@ -11,6 +11,9 @@ type BucketStats struct {
 
 // BucketStats 返回桶的对象数、版本数与字节用量（均不含删除标记）。
 func (s *Store) BucketStats(ctx context.Context, bucket string) (BucketStats, error) {
+	if err := s.ensureOpen(); err != nil {
+		return BucketStats{}, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return BucketStats{}, err
 	}

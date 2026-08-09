@@ -270,6 +270,20 @@ func TestServerRawHTTP(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET 状态码不符：%d", resp.StatusCode)
 	}
+	// GET Bucket 与 HEAD 对象头
+	resp = do("GET", "/filex/v1/buckets/abc", nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET Bucket 状态码不符：%d", resp.StatusCode)
+	}
+	var bucketJSON proto.BucketInfoJSON
+	_ = json.NewDecoder(resp.Body).Decode(&bucketJSON)
+	if bucketJSON.Name != "abc" {
+		t.Fatalf("GET Bucket 名称不符：%s", bucketJSON.Name)
+	}
+	resp = do("HEAD", "/filex/v1/buckets/abc/objects/k", nil, nil)
+	if resp.Header.Get("Content-Length") != "5" {
+		t.Fatalf("HEAD Content-Length 不符：%q", resp.Header.Get("Content-Length"))
+	}
 
 	// 错误 JSON 与 404
 	resp = do("GET", "/filex/v1/buckets/abc/objects/missing", nil, nil)
@@ -582,6 +596,7 @@ func TestServerHandlerErrorBranches(t *testing.T) {
 	}{
 		{http.MethodPut, "/filex/v1/buckets/abc", nil},
 		{http.MethodGet, "/filex/v1/buckets", nil},
+		{http.MethodGet, "/filex/v1/buckets/abc", nil},
 		{http.MethodHead, "/filex/v1/buckets/abc", nil},
 		{http.MethodDelete, "/filex/v1/buckets/abc", nil},
 		{http.MethodGet, "/filex/v1/buckets/abc/objects", nil},

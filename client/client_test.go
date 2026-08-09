@@ -59,6 +59,10 @@ func TestClientLifecycle(t *testing.T) {
 	if _, err := c.HeadBucket(ctx, "abc"); err != nil {
 		t.Fatalf("HeadBucket 失败：%v", err)
 	}
+	binfo, err := c.GetBucket(ctx, "abc")
+	if err != nil || binfo.Name != "abc" {
+		t.Fatalf("GetBucket 失败：%+v, %v", binfo, err)
+	}
 
 	content := "hello filex"
 	info, err := c.Put(ctx, "abc", "dir/a.txt", strings.NewReader(content),
@@ -538,6 +542,9 @@ func TestClientVersioningAndCopy(t *testing.T) {
 	}
 	if _, err := c.SetBucketQuota(ctx, "missing", 1); err == nil {
 		t.Fatal("缺失桶 SetBucketQuota 应报错")
+	}
+	if _, err := c.GetBucket(ctx, "missing"); err == nil {
+		t.Fatal("缺失桶 GetBucket 应报错")
 	}
 }
 

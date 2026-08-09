@@ -44,6 +44,9 @@ const defaultUploadTTL = 24 * time.Hour
 
 // SetBucketLifecycle 设置桶生命周期配置。
 func (s *Store) SetBucketLifecycle(ctx context.Context, bucket string, opts LifecycleOptions) (BucketInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return BucketInfo{}, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return BucketInfo{}, err
 	}
@@ -78,11 +81,15 @@ func (s *Store) SetBucketLifecycle(ctx context.Context, bucket string, opts Life
 
 // RunLifecycle 执行过期删除与版本数收敛。
 func (s *Store) RunLifecycle(ctx context.Context, bucket string) (LifecycleReport, error) {
+	if err := s.ensureOpen(); err != nil {
+		return LifecycleReport{}, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return LifecycleReport{}, err
 	}
-	s.bucketMu.RLock()
-	defer s.bucketMu.RUnlock()
+	// 生命周期会物理删除文件，需与写入/读取互斥。
+	s.bucketMu.Lock()
+	defer s.bucketMu.Unlock()
 	meta, err := readBucketMeta(s.fs, s.bucketMetaPath(bucket))
 	if os.IsNotExist(err) {
 		return LifecycleReport{}, newCode(CodeBucketNotFound, "桶不存在")
@@ -154,8 +161,12 @@ func (s *Store) removeObjectFiles(bucket string, m objectMeta, versioning bool) 
 
 // SweepOrphans 巡检全部桶并清理孤儿数据与临时文件。
 func (s *Store) SweepOrphans(ctx context.Context) (SweepReport, error) {
-	s.bucketMu.RLock()
-	defer s.bucketMu.RUnlock()
+	if err := s.ensureOpen(); err != nil {
+		return SweepReport{}, err
+	}
+	// 巡检会删除文件，需与写入/读取互斥。
+	s.bucketMu.Lock()
+	defer s.bucketMu.Unlock()
 	report := SweepReport{}
 	entries, err := s.fs.ReadDir(s.bucketsDir)
 	if err != nil {

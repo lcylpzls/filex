@@ -95,6 +95,16 @@ func (c *Client) HeadBucket(ctx context.Context, name string) (filex.BucketInfo,
 	return filex.BucketInfo{}, c.doJSON(ctx, http.MethodHead, path, nil, nil, nil)
 }
 
+// GetBucket 查询桶信息（含版本化/配额/生命周期）。
+func (c *Client) GetBucket(ctx context.Context, name string) (filex.BucketInfo, error) {
+	path := proto.BasePath + "/buckets/" + url.PathEscape(name)
+	var out proto.BucketInfoJSON
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return filex.BucketInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
 // ListBuckets 枚举全部桶。
 func (c *Client) ListBuckets(ctx context.Context) ([]filex.BucketInfo, error) {
 	var out struct {

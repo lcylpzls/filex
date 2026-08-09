@@ -66,6 +66,8 @@ func main() {
 - v0.13.0：客户端自动 Content-Length、并发基准。
 - v0.14.0：BucketStats 统计、运维手册、版本化迁移兼容修复。
 - v0.15.0：桶元数据 fuzz、API 冻结快照更新与终审同步。
+- v0.16.0：Store 关闭态、生命周期/巡检独占锁、GET Bucket 与
+  HEAD Content-Length。
 
 > 当前状态：**1.0 候选**。路线图与自检打磨全部完成；
 > v1.0.0 是否发布由用户决定。

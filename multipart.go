@@ -113,6 +113,9 @@ func (s *Store) partMetaPath(bucket, uploadID string, n int) string {
 
 // InitiateMultipartUpload 创建分片上传会话。
 func (s *Store) InitiateMultipartUpload(ctx context.Context, bucket, key string, opts PutOptions) (UploadInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return UploadInfo{}, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return UploadInfo{}, err
 	}
@@ -151,6 +154,9 @@ func (s *Store) InitiateMultipartUpload(ctx context.Context, bucket, key string,
 
 // UploadPart 上传单个部件；同部件重复上传为幂等覆盖。
 func (s *Store) UploadPart(ctx context.Context, bucket, key, uploadID string, partNumber int, r io.Reader) (PartInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return PartInfo{}, err
+	}
 	if r == nil {
 		return PartInfo{}, newCode(CodeInvalidArgument, "部件内容读取器不能为空")
 	}
@@ -241,6 +247,9 @@ func (s *Store) UploadPart(ctx context.Context, bucket, key, uploadID string, pa
 
 // CompleteMultipartUpload 合并部件并提交对象；成功后删除会话。
 func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, uploadID string) (ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return ObjectInfo{}, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return ObjectInfo{}, err
 	}
@@ -419,6 +428,9 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 
 // AbortMultipartUpload 中止并清理上传会话。
 func (s *Store) AbortMultipartUpload(ctx context.Context, bucket, key, uploadID string) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return err
 	}
@@ -451,6 +463,9 @@ func (s *Store) AbortMultipartUpload(ctx context.Context, bucket, key, uploadID 
 
 // ListParts 返回已上传部件列表（按部件号排序）。
 func (s *Store) ListParts(ctx context.Context, bucket, key, uploadID string) ([]PartInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return nil, err
 	}

@@ -16,6 +16,9 @@ type IntegrityReport struct {
 
 // VerifyObject 校验单个对象内容哈希。
 func (s *Store) VerifyObject(ctx context.Context, bucket, key string) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return err
 	}
@@ -27,6 +30,9 @@ func (s *Store) VerifyObject(ctx context.Context, bucket, key string) error {
 
 // VerifyAll 并发审计全部桶的当前对象与全部版本（跳过删除标记）。
 func (s *Store) VerifyAll(ctx context.Context, concurrency int) (IntegrityReport, error) {
+	if err := s.ensureOpen(); err != nil {
+		return IntegrityReport{}, err
+	}
 	report := IntegrityReport{}
 	if concurrency <= 0 {
 		concurrency = 4

@@ -288,6 +288,9 @@ func (s *Store) removeVersionFiles(bucket, key, versionID string) error {
 
 // GetVersion 读取指定版本（删除标记返回 filex_object_not_found）。
 func (s *Store) GetVersion(ctx context.Context, bucket, key, versionID string, opts GetOptions) (*Object, error) {
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return nil, err
 	}
@@ -319,6 +322,9 @@ func (s *Store) GetVersion(ctx context.Context, bucket, key, versionID string, o
 
 // HeadVersion 查询指定版本元数据。
 func (s *Store) HeadVersion(ctx context.Context, bucket, key, versionID string) (ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return ObjectInfo{}, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return ObjectInfo{}, err
 	}
@@ -350,6 +356,9 @@ func (s *Store) HeadVersion(ctx context.Context, bucket, key, versionID string) 
 
 // DeleteVersion 永久删除指定版本（含删除标记）。
 func (s *Store) DeleteVersion(ctx context.Context, bucket, key, versionID string) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return err
 	}
@@ -385,6 +394,9 @@ func (s *Store) DeleteVersion(ctx context.Context, bucket, key, versionID string
 
 // RestoreVersion 将历史版本复制为新的当前版本。
 func (s *Store) RestoreVersion(ctx context.Context, bucket, key, versionID string) (ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return ObjectInfo{}, err
+	}
 	obj, err := s.GetVersion(ctx, bucket, key, versionID, GetOptions{})
 	if err != nil {
 		return ObjectInfo{}, err
@@ -398,6 +410,9 @@ func (s *Store) RestoreVersion(ctx context.Context, bucket, key, versionID strin
 
 // ListVersions 枚举指定键的全部版本（新→旧），含删除标记。
 func (s *Store) ListVersions(ctx context.Context, bucket, key string) ([]ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
 	if err := validateBucketName(bucket); err != nil {
 		return nil, err
 	}
