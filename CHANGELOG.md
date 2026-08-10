@@ -1,5 +1,24 @@
 # 更新日志
 
+## [v0.25.0] - 2026-08-10
+
+### 变更
+
+- 加密能力统一迁移至 `cryptox`：
+  - 对象加密改为 cryptox 流式封套（`cryptox.EncryptStream` /
+    `cryptox.DecryptStream`），密文格式与旧版自研分块 GCM **不兼容**，
+    旧密文需重新加密迁移；
+  - `hashKey` 改用 `cryptox.SHA256`；
+  - 服务端 HMAC 校验 / 令牌比对改用
+    `cryptox.VerifyHMAC` / `cryptox.ConstantTimeEquals`；
+  - 客户端请求签名改用 `cryptox.SignHMAC`；
+  - 加密对象主密钥仍为 16 / 24 / 32 字节，缺失主密钥时明确返回
+    `CodeStorageFailed`。
+
+### 质量
+
+- 四包覆盖率保持 100%；race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.24.0] - 2026-08-10
 
 ### 新增

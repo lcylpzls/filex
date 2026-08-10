@@ -2,7 +2,6 @@ package filex
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lcylpzls/cryptox"
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/logx"
 )
@@ -43,8 +43,9 @@ func New(cfg Config) (*Store, error) {
 	if cfg.MaxParts < 0 {
 		return nil, newCode(CodeInvalidConfig, "部件数量上限不能为负数")
 	}
-	if len(cfg.EncryptionKey) > 0 && len(cfg.EncryptionKey) != 32 {
-		return nil, newCode(CodeInvalidConfig, "加密主密钥必须是 32 字节")
+	if len(cfg.EncryptionKey) > 0 && len(cfg.EncryptionKey) != 16 &&
+		len(cfg.EncryptionKey) != 24 && len(cfg.EncryptionKey) != 32 {
+		return nil, newCode(CodeInvalidConfig, "加密主密钥必须是 16/24/32 字节")
 	}
 	if cfg.MaxObjectSize == 0 {
 		cfg.MaxObjectSize = defaultMaxObjectSize
@@ -390,8 +391,7 @@ func (s *Store) objectMetaPath(bucket, key string) string {
 
 // hashKey 计算键的 SHA256 十六进制，作为稳定的文件系统安全目录名。
 func hashKey(key string) string {
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(cryptox.SHA256([]byte(key)))
 }
 
 func (s *Store) logInfo(msg string, fields ...logx.Field) {

@@ -15,6 +15,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/lcylpzls/confx v0.3.3 // indirect
+	github.com/lcylpzls/cryptox v0.6.3 // indirect
 	github.com/lcylpzls/errx v1.4.0 // indirect
 	github.com/lcylpzls/validx v1.0.2 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect

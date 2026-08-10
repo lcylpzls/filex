@@ -4,9 +4,7 @@ package server
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lcylpzls/cryptox"
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/filex"
 	"github.com/lcylpzls/filex/proto"
@@ -184,10 +183,9 @@ func (h *handler) authenticate(w http.ResponseWriter, r *http.Request, rid strin
 	}
 	subject := "anonymous"
 	if len(h.cfg.HMACSecret) > 0 {
-		mac := hmac.New(sha256.New, h.cfg.HMACSecret)
-		_, _ = fmt.Fprintf(mac, "%s\n%s\n%s", r.Method, r.URL.RequestURI(), tsStr)
-		got := r.Header.Get("X-Filex-Signature")
-		if !hmac.Equal([]byte(got), []byte(hex.EncodeToString(mac.Sum(nil)))) {
+		payload := []byte(fmt.Sprintf("%s\n%s\n%s", r.Method, r.URL.RequestURI(), tsStr))
+		sig, err := hex.DecodeString(r.Header.Get("X-Filex-Signature"))
+		if err != nil || !cryptox.VerifyHMAC(h.cfg.HMACSecret, payload, sig) {
 			h.writeError(w, rid, errx.NewCode(filex.CodeUnauthorized, "请求签名无效"))
 			return "", false
 		}
@@ -196,7 +194,7 @@ func (h *handler) authenticate(w http.ResponseWriter, r *http.Request, rid strin
 	if h.cfg.Token != "" {
 		auth := r.Header.Get("Authorization")
 		want := "Bearer " + h.cfg.Token
-		if !hmac.Equal([]byte(auth), []byte(want)) {
+		if !cryptox.ConstantTimeEquals([]byte(auth), []byte(want)) {
 			h.writeError(w, rid, errx.NewCode(filex.CodeUnauthorized, "令牌无效"))
 			return "", false
 		}

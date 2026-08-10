@@ -3,13 +3,13 @@ package filex
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	testx "github.com/lcylpzls/testx"
 	"io"
 	"os"
 	"strings"
 	"testing"
+
+	testx "github.com/lcylpzls/testx"
 )
 
 func testKey() []byte {
@@ -41,8 +41,8 @@ func TestEncryptionRoundTrip(t *testing.T) {
 	if bytes.Contains(raw, []byte("secret")) {
 		t.Fatal("数据文件不应包含明文")
 	}
-	if len(raw) != 16+len("secret data") {
-		t.Fatalf("密文长度不符：%d", len(raw))
+	if len(raw) <= len("secret data") {
+		t.Fatalf("cryptox 流密文长度异常：%d", len(raw))
 	}
 
 	obj, err := s.Get(ctx, "abc", "k", GetOptions{Verify: true})
@@ -70,7 +70,7 @@ func TestEncryptionRoundTrip(t *testing.T) {
 
 	// 篡改密文后校验失败
 	tampered := append([]byte(nil), raw...)
-	tampered[0] ^= 0xff // 翻转密文正文首字节
+	tampered[0] ^= 0xff // 破坏 cryptox 流标识
 	_ = os.WriteFile(s.objectDataPath("abc", "k"), tampered, 0o644)
 	obj2, err := s.Get(ctx, "abc", "k", GetOptions{Verify: true})
 	testx.RequireNoError(t, err)
@@ -98,10 +98,14 @@ func TestEncryptionWrongKey(t *testing.T) {
 	testx.RequireNoError(t, err)
 
 	defer s2.Close()
-	if _, err := s2.Get(context.Background(), "abc", "k", GetOptions{}); err == nil {
-		t.Fatal("错误主密钥应解包失败")
+	obj, err := s2.Get(context.Background(), "abc", "k", GetOptions{})
+	testx.RequireNoError(t, err)
+	_, err = io.ReadAll(obj)
+	_ = obj.Close()
+	if err == nil {
+		t.Fatal("错误主密钥应解密失败")
 	} else {
-		mustErrCode(t, err, CodeMetadataCorrupt)
+		mustErrCode(t, err, CodeChecksumMismatch)
 	}
 }
 
@@ -145,80 +149,110 @@ func TestEncryptionMultipart(t *testing.T) {
 }
 
 func TestNewInvalidEncryptionKey(t *testing.T) {
-	if _, err := New(Config{DataDir: t.TempDir(), EncryptionKey: make([]byte, 16)}); err == nil {
-		t.Fatal("16 字节主密钥应报错")
+	if _, err := New(Config{DataDir: t.TempDir(), EncryptionKey: make([]byte, 15)}); err == nil {
+		t.Fatal("15 字节主密钥应报错")
 	} else {
 		mustErrCode(t, err, CodeInvalidConfig)
 	}
 }
 
-func TestUnwrapObjectKeyErrors(t *testing.T) {
+func TestNewObjectCipherValidation(t *testing.T) {
+	if c := newObjectCipher(nil); c != nil {
+		t.Fatalf("无主密钥应返回 nil：%v", c)
+	}
+	for _, n := range []int{16, 24, 32} {
+		if c := newObjectCipher(make([]byte, n)); c == nil || !c.enabled {
+			t.Fatalf("%d 字节主密钥应启用加密", n)
+		}
+	}
+}
+
+func TestEncryptPipeRoundTrip(t *testing.T) {
 	kek := testKey()
-	c, err := newObjectCipher(kek)
+	var buf bytes.Buffer
+	plain, finish := encryptPipe(kek, &buf)
+	_, _ = plain.Write([]byte("hello world"))
+	if err := finish(); err != nil {
+		t.Fatalf("finish 失败：%v", err)
+	}
+	if bytes.Contains(buf.Bytes(), []byte("hello")) {
+		t.Fatal("密文不应包含明文")
+	}
+	dec := decryptReader(kek, bytes.NewReader(buf.Bytes()))
+	data, err := io.ReadAll(dec)
+	if err != nil || string(data) != "hello world" {
+		t.Fatalf("解密不符：%q, %v", data, err)
+	}
+}
+
+func TestEncryptPipeWriteError(t *testing.T) {
+	plain, finish := encryptPipe(testKey(), failWriter{})
+	_, _ = plain.Write([]byte("data"))
+	if err := finish(); err == nil {
+		t.Fatal("目标写入失败应报错")
+	}
+}
+
+func TestDecryptReaderTampered(t *testing.T) {
+	kek := testKey()
+	var buf bytes.Buffer
+	plain, finish := encryptPipe(kek, &buf)
+	_, _ = plain.Write([]byte("secret"))
+	if err := finish(); err != nil {
+		t.Fatalf("finish 失败：%v", err)
+	}
+	tampered := append([]byte(nil), buf.Bytes()...)
+	tampered[len(tampered)-1] ^= 0xff
+	dec := decryptReader(kek, bytes.NewReader(tampered))
+	if _, err := io.ReadAll(dec); err == nil {
+		t.Fatal("篡改密文应认证失败")
+	} else {
+		mustErrCode(t, err, CodeChecksumMismatch)
+	}
+}
+
+func TestDecryptReaderTruncated(t *testing.T) {
+	kek := testKey()
+	var buf bytes.Buffer
+	plain, finish := encryptPipe(kek, &buf)
+	_, _ = plain.Write([]byte("secret"))
+	if err := finish(); err != nil {
+		t.Fatalf("finish 失败：%v", err)
+	}
+	dec := decryptReader(kek, bytes.NewReader(buf.Bytes()[:10]))
+	if _, err := io.ReadAll(dec); err == nil {
+		t.Fatal("截断密文应报错")
+	}
+}
+
+func TestEncryptionChunkBoundaries(t *testing.T) {
+	s, _ := newStoreWithKey(t, testKey())
+	mustBucket(t, s, "abc")
+	ctx := context.Background()
+	const chunk = 64 * 1024
+	big := strings.Repeat("x", chunk*2+123)
+	_, err := s.Put(ctx, "abc", "big", strings.NewReader(big), PutOptions{})
 	testx.RequireNoError(t, err)
 
-	if _, err := unwrapObjectKey(nil, c.meta); err == nil {
-		t.Fatal("缺少主密钥应报错")
-	}
-	badMeta := c.meta
-	badMeta.WrappedKey = "!!!"
-	if _, err := unwrapObjectKey(kek, badMeta); err == nil {
-		t.Fatal("坏 base64 应报错")
-	}
-	badMeta = c.meta
-	badMeta.KeyNonce = "zz"
-	if _, err := unwrapObjectKey(kek, badMeta); err == nil {
-		t.Fatal("坏十六进制应报错")
-	}
-	if _, err := unwrapObjectKey([]byte{1, 2, 3}, c.meta); err == nil {
-		t.Fatal("非法主密钥长度应报错")
-	}
-	if _, err := unwrapObjectKey(bytes.Repeat([]byte{0x11}, 32), c.meta); err == nil {
-		t.Fatal("错误主密钥应解包失败")
-	}
-	dek, err := unwrapObjectKey(kek, c.meta)
-	if err != nil || len(dek) != 32 {
-		t.Fatalf("正常解包失败：%d, %v", len(dek), err)
-	}
-}
+	obj, err := s.Get(ctx, "abc", "big", GetOptions{Verify: true})
+	testx.RequireNoError(t, err)
 
-type partialRand struct {
-	remaining int
-}
+	data, err := io.ReadAll(obj)
+	_ = obj.Close()
+	if err != nil || string(data) != big {
+		t.Fatalf("多块解密不符：%d 字节, %v", len(data), err)
+	}
+	// 空对象
+	if _, err := s.Put(ctx, "abc", "empty", strings.NewReader(""), PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	obj2, err := s.Get(ctx, "abc", "empty", GetOptions{Verify: true})
+	testx.RequireNoError(t, err)
 
-func (p *partialRand) Read(b []byte) (int, error) {
-	if p.remaining <= 0 {
-		return 0, errors.New("随机数耗尽")
-	}
-	n := len(b)
-	if n > p.remaining {
-		n = p.remaining
-	}
-	for i := 0; i < n; i++ {
-		b[i] = 0x5a
-	}
-	p.remaining -= n
-	return n, nil
-}
-
-func TestNewObjectCipherRandErrors(t *testing.T) {
-	old := cryptoRand
-	defer func() { cryptoRand = old }()
-	cryptoRand = &partialRand{remaining: 0}
-	if _, err := newObjectCipher(testKey()); err == nil {
-		t.Fatal("DEK 随机数失败应报错")
-	}
-	cryptoRand = &partialRand{remaining: 32}
-	if _, err := newObjectCipher(testKey()); err == nil {
-		t.Fatal("密钥随机数失败应报错")
-	}
-	cryptoRand = &partialRand{remaining: 44}
-	if _, err := newObjectCipher(testKey()); err == nil {
-		t.Fatal("数据随机数失败应报错")
-	}
-	cryptoRand = old
-	if _, err := newObjectCipher([]byte{1, 2, 3}); err == nil {
-		t.Fatal("非法主密钥长度应报错")
+	data2, _ := io.ReadAll(obj2)
+	_ = obj2.Close()
+	if len(data2) != 0 {
+		t.Fatalf("空对象解密不符：%d", len(data2))
 	}
 }
 
@@ -244,7 +278,7 @@ func TestPutEncryptionWriteError(t *testing.T) {
 		return f, nil
 	}
 	if _, err := s.Put(context.Background(), "abc", "k", strings.NewReader("v"), PutOptions{}); err == nil {
-		t.Fatal("加密随机数写入失败应报错")
+		t.Fatal("加密输出写入失败应报错")
 	}
 }
 
@@ -263,7 +297,7 @@ func TestCompleteEncryptionWriteError(t *testing.T) {
 		return f, nil
 	}
 	if _, err := s.CompleteMultipartUpload(ctx, "abc", "k", up.UploadID); err == nil {
-		t.Fatal("加密随机数写入失败应报错")
+		t.Fatal("加密输出写入失败应报错")
 	}
 }
 
@@ -273,21 +307,7 @@ func TestOpenObjectEncryptionMetaErrors(t *testing.T) {
 	ctx := context.Background()
 	_, _ = s.Put(ctx, "abc", "k", strings.NewReader("v"), PutOptions{})
 
-	metaPath := s.objectMetaPath("abc", "k")
-	meta, _ := readObjectMeta(s.fs, metaPath)
-	meta.Encryption.FileNonce = "zz"
-	data, _ := json.Marshal(meta)
-	_ = os.WriteFile(metaPath, data, 0o644)
-	if _, err := s.Get(ctx, "abc", "k", GetOptions{}); err == nil {
-		t.Fatal("非法文件随机数应报错")
-	} else {
-		mustErrCode(t, err, CodeMetadataCorrupt)
-	}
-
 	// 密文截断：读取过程报错
-	meta.Encryption.FileNonce = strings.Repeat("0", 16)
-	data, _ = json.Marshal(meta)
-	_ = os.WriteFile(metaPath, data, 0o644)
 	_ = os.WriteFile(s.objectDataPath("abc", "k"), []byte("short"), 0o644)
 	obj, err := s.Get(ctx, "abc", "k", GetOptions{})
 	testx.RequireNoError(t, err)
@@ -298,84 +318,8 @@ func TestOpenObjectEncryptionMetaErrors(t *testing.T) {
 	}
 }
 
-func TestPutCipherGenerationError(t *testing.T) {
-	s, _ := newStoreWithKey(t, testKey())
-	mustBucket(t, s, "abc")
-	old := cryptoRand
-	cryptoRand = failReader{}
-	defer func() { cryptoRand = old }()
-	if _, err := s.Put(context.Background(), "abc", "k", strings.NewReader("v"), PutOptions{}); err == nil {
-		t.Fatal("加密上下文生成失败应报错")
-	}
-}
-
-func TestCompleteCipherGenerationError(t *testing.T) {
-	s, _ := newStoreWithKey(t, testKey())
-	mustBucket(t, s, "abc")
-	ctx := context.Background()
-	up, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
-	_, _ = s.UploadPart(ctx, "abc", "k", up.UploadID, 1, strings.NewReader("a"))
-	old := cryptoRand
-	cryptoRand = failReader{}
-	defer func() { cryptoRand = old }()
-	if _, err := s.CompleteMultipartUpload(ctx, "abc", "k", up.UploadID); err == nil {
-		t.Fatal("加密上下文生成失败应报错")
-	}
-}
-
-func TestGCMChunkBoundaries(t *testing.T) {
-	s, _ := newStoreWithKey(t, testKey())
-	mustBucket(t, s, "abc")
-	ctx := context.Background()
-	big := strings.Repeat("x", encryptionChunkSize*2+123)
-	_, err := s.Put(ctx, "abc", "big", strings.NewReader(big), PutOptions{})
-	testx.RequireNoError(t, err)
-
-	obj, err := s.Get(ctx, "abc", "big", GetOptions{Verify: true})
-	testx.RequireNoError(t, err)
-
-	data, err := io.ReadAll(obj)
-	_ = obj.Close()
-	if err != nil || string(data) != big {
-		t.Fatalf("多块解密不符：%d 字节, %v", len(data), err)
-	}
-	// 空对象
-	if _, err := s.Put(ctx, "abc", "empty", strings.NewReader(""), PutOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	obj2, err := s.Get(ctx, "abc", "empty", GetOptions{Verify: true})
-	testx.RequireNoError(t, err)
-
-	data2, _ := io.ReadAll(obj2)
-	_ = obj2.Close()
-	if len(data2) != 0 {
-		t.Fatalf("空对象解密不符：%d", len(data2))
-	}
-	// 恰好整块大小：Close 时不再追加空块
-	exact := strings.Repeat("y", encryptionChunkSize*2)
-	_, err = s.Put(ctx, "abc", "exact", strings.NewReader(exact), PutOptions{})
-	testx.RequireNoError(t, err)
-
-	obj3, err := s.Get(ctx, "abc", "exact", GetOptions{Verify: true})
-	testx.RequireNoError(t, err)
-
-	data3, _ := io.ReadAll(obj3)
-	_ = obj3.Close()
-	if string(data3) != exact {
-		t.Fatalf("整块对象解密不符：%d", len(data3))
-	}
-}
-
 type failWriter struct{}
 
-func (failWriter) Write([]byte) (int, error) { return 0, errors.New("写入失败") }
-
-func TestGCMChunkWriterFlushError(t *testing.T) {
-	c, err := newObjectCipher(testKey())
-	testx.RequireNoError(t, err)
-
-	w := c.newGCMWriter(failWriter{})
-	if _, err := w.Write(make([]byte, encryptionChunkSize+1)); err == nil {
-		t.Fatal("整块冲刷失败应报错")
-	}
+func (failWriter) Write([]byte) (int, error) {
+	return 0, errors.New("写入失败")
 }

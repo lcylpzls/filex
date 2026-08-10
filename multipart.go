@@ -273,10 +273,7 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		versionID = newVersionID()
 	}
 	dataPath, metaPath := s.objectPaths(bucket, key, versionID)
-	cipherCtx, err := newObjectCipher(s.cfg.EncryptionKey)
-	if err != nil {
-		return ObjectInfo{}, err
-	}
+	cipherCtx := newObjectCipher(s.cfg.EncryptionKey)
 
 	um, err := readUploadMeta(s.fs, s.uploadMetaPath(bucket, uploadID))
 	if os.IsNotExist(err) {
@@ -332,13 +329,16 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 			cleanup()
 		}
 	}()
-	var dst io.Writer = f
-	var gcmWriter *gcmChunkWriter
-	if cipherCtx != nil {
-		gcmWriter = cipherCtx.newGCMWriter(f)
-		dst = gcmWriter
-	}
 	hasher := sha256.New()
+	var dst io.Writer = f
+	var encryptFinish func() error
+	if cipherCtx != nil {
+		var pw io.Writer
+		pw, encryptFinish = encryptPipe(s.cfg.EncryptionKey, f)
+		dst = io.MultiWriter(pw, hasher)
+	} else {
+		dst = io.MultiWriter(f, hasher)
+	}
 	var total int64
 	for _, n := range numbers {
 		pm, err := readPartMeta(s.fs, s.partMetaPath(bucket, uploadID, n))
@@ -352,7 +352,7 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		if err != nil {
 			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "打开部件数据失败")
 		}
-		n2, err := s.fs.WriteToFile(io.MultiWriter(dst, hasher), newContextReader(ctx, pf))
+		n2, err := s.fs.WriteToFile(dst, newContextReader(ctx, pf))
 		_ = pf.Close()
 		if err != nil {
 			return ObjectInfo{}, storageErr(err, "合并部件失败")
@@ -365,10 +365,9 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 	if total > s.cfg.MaxObjectSize {
 		return ObjectInfo{}, newCodef(CodeObjectTooLarge, "合并对象超过 %d 字节上限", s.cfg.MaxObjectSize)
 	}
-	if gcmWriter != nil {
-		if err := gcmWriter.Close(); err != nil {
-			return ObjectInfo{}, storageErr(err, "冲刷加密块失败")
-		}
+	if encryptFinish != nil {
+		// 加密输出错误已通过写入端传播到合并循环，这里仅等待完成。
+		_ = encryptFinish()
 	}
 	if !s.cfg.DisableSync {
 		if err := s.fs.SyncFile(f); err != nil {
@@ -399,7 +398,7 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		UpdatedAt:   time.Now().UTC(),
 	}
 	if cipherCtx != nil {
-		om.Encryption = &cipherCtx.meta
+		om.Encryption = &encryptionMeta{Algorithm: encryptionAlgorithm}
 	}
 	if err := s.writeJSONAtomic(metaPath, om); err != nil {
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象元数据失败")

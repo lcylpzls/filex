@@ -4,8 +4,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -17,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lcylpzls/cryptox"
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/filex"
 	"github.com/lcylpzls/filex/proto"
@@ -525,9 +524,10 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body io.Re
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		req.Header.Set("X-Filex-Timestamp", ts)
 		if len(c.hmacSecret) > 0 {
-			mac := hmac.New(sha256.New, c.hmacSecret)
-			_, _ = fmt.Fprintf(mac, "%s\n%s\n%s", method, path, ts)
-			req.Header.Set("X-Filex-Signature", hex.EncodeToString(mac.Sum(nil)))
+			payload := []byte(fmt.Sprintf("%s\n%s\n%s", method, path, ts))
+			// 非空密钥下 SignHMAC 不会失败。
+			sig, _ := cryptox.SignHMAC(c.hmacSecret, payload)
+			req.Header.Set("X-Filex-Signature", hex.EncodeToString(sig))
 		}
 	}
 	return req, nil

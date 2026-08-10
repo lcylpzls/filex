@@ -2,8 +2,6 @@ package filex
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/hex"
 	"hash"
@@ -65,11 +63,7 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 			return ObjectInfo{}, newCode(CodeStorageFailed, "键哈希冲突，拒绝写入")
 		}
 	}
-	cipherCtx, err := newObjectCipher(s.cfg.EncryptionKey)
-	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
-		return ObjectInfo{}, err
-	}
+	cipherCtx := newObjectCipher(s.cfg.EncryptionKey)
 
 	dir := filepath.Dir(dataPath)
 	if err := s.fs.MkdirAll(dir, 0o755); err != nil {
@@ -91,23 +85,24 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	}()
 
 	var dst io.Writer = f
-	var gcmWriter *gcmChunkWriter
-	if cipherCtx != nil {
-		gcmWriter = cipherCtx.newGCMWriter(f)
-		dst = gcmWriter
-	}
+	var encryptFinish func() error
 	hasher := sha256.New()
 	limited := io.LimitReader(newContextReader(ctx, r), s.cfg.MaxObjectSize+1)
-	size, err := s.fs.WriteToFile(io.MultiWriter(dst, hasher), limited)
+	if cipherCtx != nil {
+		var pw io.Writer
+		pw, encryptFinish = encryptPipe(s.cfg.EncryptionKey, f)
+		dst = io.MultiWriter(pw, hasher)
+	} else {
+		dst = io.MultiWriter(f, hasher)
+	}
+	size, err := s.fs.WriteToFile(dst, limited)
 	if err != nil {
 		s.metrics.IncError(bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, storageErr(err, "写入对象内容失败")
 	}
-	if gcmWriter != nil {
-		if err := gcmWriter.Close(); err != nil {
-			s.metrics.IncError(bucket, string(CodeStorageFailed))
-			return ObjectInfo{}, storageErr(err, "冲刷加密块失败")
-		}
+	if encryptFinish != nil {
+		// 加密输出错误已通过写入端传播到 WriteToFile，这里仅等待完成。
+		_ = encryptFinish()
 	}
 	if size > s.cfg.MaxObjectSize {
 		return ObjectInfo{}, newCodef(CodeObjectTooLarge, "对象超过 %d 字节上限", s.cfg.MaxObjectSize)
@@ -145,7 +140,7 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		UpdatedAt:   now,
 	}
 	if cipherCtx != nil {
-		meta.Encryption = &cipherCtx.meta
+		meta.Encryption = &encryptionMeta{Algorithm: encryptionAlgorithm}
 	}
 	if meta.ContentType == "" {
 		meta.ContentType = "application/octet-stream"
@@ -260,22 +255,12 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 	}
 	var rc io.ReadCloser
 	if meta.Encryption != nil {
-		fileNonce, err := hex.DecodeString(meta.Encryption.FileNonce)
-		if err != nil {
+		if len(s.cfg.EncryptionKey) == 0 {
 			_ = f.Close()
-			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
-			return nil, newCode(CodeMetadataCorrupt, "加密文件随机数格式非法")
+			return nil, newCode(CodeStorageFailed, "缺少加密主密钥")
 		}
-		dek, err := unwrapObjectKey(s.cfg.EncryptionKey, *meta.Encryption)
-		if err != nil {
-			_ = f.Close()
-			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
-			return nil, err
-		}
-		block, _ := aes.NewCipher(dek)
-		gcm, _ := cipher.NewGCM(block)
 		base := &closeReader{
-			Reader: newGCMChunkReader(f, gcm, fileNonce, meta.Size),
+			Reader: decryptReader(s.cfg.EncryptionKey, f),
 			closer: f,
 		}
 		if opts.Verify {
