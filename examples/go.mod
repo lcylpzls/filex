@@ -3,12 +3,12 @@ module github.com/lcylpzls/filex/examples
 go 1.26.5
 
 require (
-	github.com/lcylpzls/clix v1.4.1
-	github.com/lcylpzls/filex v1.0.1
-	github.com/lcylpzls/httpx v1.2.2
-	github.com/lcylpzls/logx v1.3.1
-	github.com/lcylpzls/testx v1.4.2
-	github.com/lcylpzls/webx v1.5.3
+	github.com/lcylpzls/clix v1.4.2
+	github.com/lcylpzls/filex v1.0.2
+	github.com/lcylpzls/httpx v1.2.3
+	github.com/lcylpzls/logx v1.3.2
+	github.com/lcylpzls/testx v1.4.3
+	github.com/lcylpzls/webx v1.5.4
 )
 
 require (
