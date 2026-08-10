@@ -40,6 +40,8 @@ type Config struct {
 	Metrics Metrics
 	// TraceHook 是可选链路追踪钩子。
 	TraceHook TraceHook
+	// EventHook 是可选事件钩子（默认 no-op），由 eventx 等外部适配器接入。
+	EventHook EventHook
 }
 
 // Logger 是 filex 使用的最小日志接口，logx.Logger 天然满足。

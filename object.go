@@ -550,12 +550,12 @@ func (s *Store) Copy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey s
 	if err := s.ensureOpen(); err != nil {
 		return ObjectInfo{}, err
 	}
-	obj, err := s.Get(ctx, srcBucket, srcKey, GetOptions{})
+	obj, err := s.Get(withInternal(ctx), srcBucket, srcKey, GetOptions{})
 	if err != nil {
 		return ObjectInfo{}, err
 	}
 	defer obj.Close()
-	return s.Put(ctx, dstBucket, dstKey, obj, PutOptions{
+	return s.Put(withInternal(ctx), dstBucket, dstKey, obj, PutOptions{
 		ContentType: obj.Info.ContentType,
 		Metadata:    obj.Info.Metadata,
 	})
@@ -568,11 +568,11 @@ func (s *Store) Move(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey s
 	if err := s.ensureOpen(); err != nil {
 		return ObjectInfo{}, err
 	}
-	info, err = s.Copy(ctx, srcBucket, srcKey, dstBucket, dstKey)
+	info, err = s.Copy(withInternal(ctx), srcBucket, srcKey, dstBucket, dstKey)
 	if err != nil {
 		return ObjectInfo{}, err
 	}
-	if err := s.Delete(ctx, srcBucket, srcKey); err != nil {
+	if err := s.Delete(withInternal(ctx), srcBucket, srcKey); err != nil {
 		return ObjectInfo{}, err
 	}
 	return info, nil

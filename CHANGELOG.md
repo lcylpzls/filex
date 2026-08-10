@@ -1,5 +1,20 @@
 # 更新日志
 
+## [v0.24.0] - 2026-08-10
+
+### 新增
+
+- `EventHook` 事件钩子（零依赖可选接口，默认 no-op）：
+  put / get / head / delete / list / copy / move 操作结束时触发
+  `ObjectEvent`（bucket / key / action / err），由 eventx 等
+  外部适配器接入；
+- Copy / Move 内部原语通过内部上下文标记抑制事件，避免事件噪音；
+- 与 TraceHook 同位置注入，调用点统一、零侵入。
+
+### 质量
+
+- 四包覆盖率保持 100%；race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.23.2] - 2026-08-10
 
 ### 变更

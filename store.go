@@ -25,6 +25,7 @@ type Store struct {
 	log        Logger
 	metrics    Metrics
 	traceHook  TraceHook
+	eventHook  EventHook
 	closed     atomic.Bool
 }
 
@@ -72,6 +73,7 @@ func New(cfg Config) (*Store, error) {
 		log:        cfg.Logger,
 		metrics:    cfg.Metrics,
 		traceHook:  cfg.TraceHook,
+		eventHook:  cfg.EventHook,
 	}
 	if s.metrics == nil {
 		s.metrics = nopMetrics{}
@@ -81,7 +83,7 @@ func New(cfg Config) (*Store, error) {
 
 // startTrace 开始存储操作链路（无钩子时 no-op）。
 func (s *Store) startTrace(ctx context.Context, op, bucket, key string) (context.Context, func(error)) {
-	if s.traceHook == nil {
+	if s.traceHook == nil && s.eventHook == nil {
 		return ctx, func(error) {}
 	}
 	attrs := []TraceAttr{
@@ -91,7 +93,35 @@ func (s *Store) startTrace(ctx context.Context, op, bucket, key string) (context
 	if key != "" {
 		attrs = append(attrs, TraceAttr{Key: "filex.key", Value: key})
 	}
-	return s.traceHook.Start(ctx, "filex."+op, attrs...)
+	traceEnd := func(error) {}
+	if s.traceHook != nil {
+		ctx, traceEnd = s.traceHook.Start(ctx, "filex."+op, attrs...)
+	}
+	return ctx, func(err error) {
+		traceEnd(err)
+		if s.eventHook != nil && !isInternal(ctx) {
+			s.eventHook.OnObjectEvent(ctx, ObjectEvent{
+				Bucket: bucket,
+				Key:    key,
+				Action: op,
+				Err:    err,
+			})
+		}
+	}
+}
+
+// internalCtxKey 标记内部操作上下文（Copy/Move 内部原语不发事件）。
+type internalCtxKey struct{}
+
+// withInternal 标记 ctx 为内部操作。
+func withInternal(ctx context.Context) context.Context {
+	return context.WithValue(ctx, internalCtxKey{}, true)
+}
+
+// isInternal 判断 ctx 是否为内部操作。
+func isInternal(ctx context.Context) bool {
+	v, _ := ctx.Value(internalCtxKey{}).(bool)
+	return v
 }
 
 // Close 关闭 Store；关闭后所有操作返回 filex_closed。
