@@ -13,11 +13,12 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/lcylpzls/confx v0.4.4 // indirect
 	github.com/lcylpzls/cryptox v0.6.7 // indirect
 	github.com/lcylpzls/errx v1.4.0 // indirect
-	github.com/lcylpzls/validx v1.1.3 // indirect
+	github.com/lcylpzls/idgenx v1.3.0 // indirect
+	github.com/lcylpzls/resiliencex v1.3.0 // indirect
+	github.com/lcylpzls/validx v1.2.2 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.61.0 // indirect
