@@ -1,5 +1,15 @@
 # 更新日志
 
+## [v0.20.0] - 2026-08-10
+
+### 新增
+
+- `TraceHook` 链路追踪钩子（零依赖接口 + `Config.TraceHook`）：
+  对象操作（Put/Get/Head/Delete/List/Copy/Move）自动埋点
+  （filex.operation / filex.bucket / filex.key 属性），
+  由 tracex 等外部适配器接入；
+- 对象操作追踪测试，根包与子包覆盖率保持 100%。
+
 ## [v0.19.0] - 2026-08-10
 
 ### 收口

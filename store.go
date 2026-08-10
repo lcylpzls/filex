@@ -24,6 +24,7 @@ type Store struct {
 	fs         fsOps
 	log        Logger
 	metrics    Metrics
+	traceHook  TraceHook
 	closed     atomic.Bool
 }
 
@@ -70,11 +71,27 @@ func New(cfg Config) (*Store, error) {
 		fs:         defaultFSOps,
 		log:        cfg.Logger,
 		metrics:    cfg.Metrics,
+		traceHook:  cfg.TraceHook,
 	}
 	if s.metrics == nil {
 		s.metrics = nopMetrics{}
 	}
 	return s, nil
+}
+
+// startTrace 开始存储操作链路（无钩子时 no-op）。
+func (s *Store) startTrace(ctx context.Context, op, bucket, key string) (context.Context, func(error)) {
+	if s.traceHook == nil {
+		return ctx, func(error) {}
+	}
+	attrs := []TraceAttr{
+		{Key: "filex.operation", Value: op},
+		{Key: "filex.bucket", Value: bucket},
+	}
+	if key != "" {
+		attrs = append(attrs, TraceAttr{Key: "filex.key", Value: key})
+	}
+	return s.traceHook.Start(ctx, "filex."+op, attrs...)
 }
 
 // Close 关闭 Store；关闭后所有操作返回 filex_closed。

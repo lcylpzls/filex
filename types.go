@@ -38,6 +38,8 @@ type Config struct {
 	Logger Logger
 	// Metrics 是可选指标打点。
 	Metrics Metrics
+	// TraceHook 是可选链路追踪钩子。
+	TraceHook TraceHook
 }
 
 // Logger 是 filex 使用的最小日志接口，logx.Logger 天然满足。
