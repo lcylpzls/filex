@@ -1,5 +1,21 @@
 # 更新日志
 
+## [v0.28.0] - 2026-08-10
+
+### 变更
+
+- 校验能力统一迁移至家族 `validx`：
+  - 桶名 / 键名 / 元数据校验注册为 validx 全局自定义规则
+    （`filex_bucket_name` / `filex_key` / `filex_metadata`），
+    调用点统一走 `validx.ValidateField`；
+  - SHA256 格式判定改用 validx 内置规则（`hexadecimal,len=64`）；
+  - errx 错误码保持 filex 语义（CodeInvalidBucket / CodeInvalidKey /
+    CodeInvalidMetadata），行为不变。
+
+### 质量
+
+- 四包覆盖率保持 100%；race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.27.0] - 2026-08-10
 
 ### 变更
