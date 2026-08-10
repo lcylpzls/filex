@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,9 +37,8 @@ func (f *fakeLogger) Error(msg string, _ logx.FieldGroup) {}
 func newTestServer(t *testing.T) (*httptest.Server, *filex.Store, *fakeLogger) {
 	t.Helper()
 	store, err := filex.New(filex.Config{DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	t.Cleanup(func() { _ = store.Close() })
 	logger := &fakeLogger{}
 	ts := httptest.NewServer(NewHandler(HandlerConfig{Store: store, Logger: logger}))
@@ -50,17 +50,13 @@ func TestServerLifecycle(t *testing.T) {
 	ts, _, logger := newTestServer(t)
 	ctx := context.Background()
 	c, err := client.New(ts.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
 
 	info, err := c.CreateBucket(ctx, "my-bucket")
-	if err != nil {
-		t.Fatalf("创建桶失败：%v", err)
-	}
-	if info.Name != "my-bucket" {
-		t.Fatalf("桶名不符：%s", info.Name)
-	}
+	testx.RequireNoError(t, err)
+
+	testx.RequireEqual(t, info.Name, "my-bucket")
+
 	buckets, err := c.ListBuckets(ctx)
 	if err != nil || len(buckets) != 1 || buckets[0].Name != "my-bucket" {
 		t.Fatalf("桶列表不符：%+v, %v", buckets, err)
@@ -72,30 +68,26 @@ func TestServerLifecycle(t *testing.T) {
 	content := "你好，协议"
 	objInfo, err := c.Put(ctx, "my-bucket", "dir/file.txt", strings.NewReader(content),
 		filex.PutOptions{ContentType: "text/plain", Metadata: map[string]string{"owner": "me"}})
-	if err != nil {
-		t.Fatalf("Put 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if objInfo.Size != int64(len(content)) {
 		t.Fatalf("对象大小不符：%d", objInfo.Size)
 	}
 
 	head, err := c.Head(ctx, "my-bucket", "dir/file.txt")
-	if err != nil {
-		t.Fatalf("Head 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if head.ETag != objInfo.ETag || head.Metadata["owner"] != "me" {
 		t.Fatalf("Head 元数据不符：%+v", head)
 	}
 
 	obj, err := c.Get(ctx, "my-bucket", "dir/file.txt", filex.GetOptions{Verify: true})
-	if err != nil {
-		t.Fatalf("Get 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data, err := io.ReadAll(obj)
 	_ = obj.Close()
-	if err != nil {
-		t.Fatalf("读取失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if string(data) != content {
 		t.Fatalf("内容不符：%s", data)
 	}
@@ -103,9 +95,8 @@ func TestServerLifecycle(t *testing.T) {
 	_, _ = c.Put(ctx, "my-bucket", "ascii.txt", strings.NewReader("hello"), filex.PutOptions{})
 	rng := filex.ByteRange{Start: 1, End: 3}
 	obj2, err := c.Get(ctx, "my-bucket", "ascii.txt", filex.GetOptions{Range: &rng})
-	if err != nil {
-		t.Fatalf("范围读取失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data2, _ := io.ReadAll(obj2)
 	_ = obj2.Close()
 	if string(data2) != "ell" {
@@ -138,9 +129,8 @@ func TestServerMultipartLifecycle(t *testing.T) {
 	_, _ = c.CreateBucket(ctx, "abc")
 
 	up, err := c.InitiateMultipartUpload(ctx, "abc", "big", filex.PutOptions{Metadata: map[string]string{"m": "1"}})
-	if err != nil {
-		t.Fatalf("Initiate 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := c.UploadPart(ctx, "abc", "big", up.UploadID, 2, strings.NewReader("bbb")); err != nil {
 		t.Fatal(err)
 	}
@@ -152,9 +142,8 @@ func TestServerMultipartLifecycle(t *testing.T) {
 		t.Fatalf("ListParts 不符：%+v, %v", parts, err)
 	}
 	info, err := c.CompleteMultipartUpload(ctx, "abc", "big", up.UploadID)
-	if err != nil {
-		t.Fatalf("Complete 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if info.ETag != sha256Hex("aaabbb") {
 		t.Fatalf("合并 ETag 不符：%s", info.ETag)
 	}
@@ -164,9 +153,8 @@ func TestServerMultipartLifecycle(t *testing.T) {
 
 	// 中止流程
 	up2, err := c.InitiateMultipartUpload(ctx, "abc", "abort", filex.PutOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_, _ = c.UploadPart(ctx, "abc", "abort", up2.UploadID, 1, strings.NewReader("x"))
 	if err := c.AbortMultipartUpload(ctx, "abc", "abort", up2.UploadID); err != nil {
 		t.Fatalf("Abort 失败：%v", err)
@@ -197,9 +185,8 @@ func TestServerVersioningCopyQuota(t *testing.T) {
 		t.Fatalf("版本列表不符：%+v, %v", versions, err)
 	}
 	old, err := c.GetVersion(ctx, "abc", "k", v1.VersionID, filex.GetOptions{})
-	if err != nil {
-		t.Fatalf("GetVersion 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	oldData, _ := io.ReadAll(old)
 	_ = old.Close()
 	if string(oldData) != "aaa" {
@@ -246,18 +233,16 @@ func TestServerRawHTTP(t *testing.T) {
 	do := func(method, path string, body io.Reader, hdr http.Header) *http.Response {
 		t.Helper()
 		req, err := http.NewRequest(method, ts.URL+path, body)
-		if err != nil {
-			t.Fatal(err)
-		}
+		testx.RequireNoError(t, err)
+
 		for k, vs := range hdr {
 			for _, v := range vs {
 				req.Header.Add(k, v)
 			}
 		}
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
+		testx.RequireNoError(t, err)
+
 		t.Cleanup(func() { _ = resp.Body.Close() })
 		return resp
 	}
@@ -267,19 +252,16 @@ func TestServerRawHTTP(t *testing.T) {
 	if resp.Header.Get(proto.HeaderRequestID) == "" {
 		t.Fatal("响应缺少请求 ID")
 	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusOK)
+
 	// GET Bucket 与 HEAD 对象头
 	resp = do("GET", "/filex/v1/buckets/abc", nil, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET Bucket 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusOK)
+
 	var bucketJSON proto.BucketInfoJSON
 	_ = json.NewDecoder(resp.Body).Decode(&bucketJSON)
-	if bucketJSON.Name != "abc" {
-		t.Fatalf("GET Bucket 名称不符：%s", bucketJSON.Name)
-	}
+	testx.RequireEqual(t, bucketJSON.Name, "abc")
+
 	resp = do("HEAD", "/filex/v1/buckets/abc/objects/k", nil, nil)
 	if resp.Header.Get("Content-Length") != "5" {
 		t.Fatalf("HEAD Content-Length 不符：%q", resp.Header.Get("Content-Length"))
@@ -287,9 +269,8 @@ func TestServerRawHTTP(t *testing.T) {
 
 	// 错误 JSON 与 404
 	resp = do("GET", "/filex/v1/buckets/abc/objects/missing", nil, nil)
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("404 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusNotFound)
+
 	var errBody proto.ErrorBody
 	_ = json.NewDecoder(resp.Body).Decode(&errBody)
 	if errBody.Code != string(filex.CodeObjectNotFound) {
@@ -298,35 +279,26 @@ func TestServerRawHTTP(t *testing.T) {
 
 	// 非法 Range → 416
 	resp = do("GET", "/filex/v1/buckets/abc/objects/k", nil, http.Header{"Range": {"bytes=99-100"}})
-	if resp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
-		t.Fatalf("非法 Range 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusRequestedRangeNotSatisfiable)
 
 	// If-None-Match 命中 → 304
 	etag := `"` + sha256Hex("hello") + `"`
 	resp = do("GET", "/filex/v1/buckets/abc/objects/k", nil, http.Header{"If-None-Match": {etag}})
-	if resp.StatusCode != http.StatusNotModified {
-		t.Fatalf("If-None-Match 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusNotModified)
 
 	// If-Match 不命中 → 412
 	resp = do("GET", "/filex/v1/buckets/abc/objects/k", nil, http.Header{"If-Match": {`"deadbeef"`}})
-	if resp.StatusCode != http.StatusPreconditionFailed {
-		t.Fatalf("If-Match 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusPreconditionFailed)
 
 	// 非法元数据头 → 400
 	resp = do("PUT", "/filex/v1/buckets/abc/objects/bad", strings.NewReader("v"),
 		http.Header{proto.HeaderMetadata: {"{"}})
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("非法元数据状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	// 不存在的桶 → 404
 	resp = do("PUT", "/filex/v1/buckets/missing/objects/k", strings.NewReader("v"), nil)
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("缺失桶状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusNotFound)
+
 }
 
 func sha256Hex(s string) string {
@@ -392,9 +364,8 @@ func TestServerPanicRecovery(t *testing.T) {
 	})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/boom", nil))
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("状态码不符：%d", rec.Code)
-	}
+	testx.RequireEqual(t, rec.Code, http.StatusInternalServerError)
+
 	var body proto.ErrorBody
 	_ = json.NewDecoder(rec.Body).Decode(&body)
 	if body.Code != string(filex.CodeInternal) {
@@ -621,17 +592,14 @@ func TestServerHandlerErrorBranches(t *testing.T) {
 	}
 	for _, c := range cases {
 		req, err := http.NewRequest(c.method, ts.URL+c.path, c.body)
-		if err != nil {
-			t.Fatal(err)
-		}
+		testx.RequireNoError(t, err)
+
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
+		testx.RequireNoError(t, err)
+
 		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusInternalServerError {
-			t.Errorf("%s %s 状态码应为 500，实际 %d", c.method, c.path, resp.StatusCode)
-		}
+		testx.Equal(t, resp.StatusCode, http.StatusInternalServerError)
+
 	}
 
 	// Get 成功 Head 但 Get 失败的分支
@@ -639,85 +607,64 @@ func TestServerHandlerErrorBranches(t *testing.T) {
 	ts2 := httptest.NewServer(NewHandler(HandlerConfig{Store: f2}))
 	defer ts2.Close()
 	resp, err := http.Get(ts2.URL + "/filex/v1/buckets/abc/objects/k")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("Get 错误分支状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusInternalServerError)
+
 }
 
 func TestServerInvalidInputBranches(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	c, err := client.New(ts.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := c.CreateBucket(context.Background(), "abc"); err != nil {
 		t.Fatal(err)
 	}
 
 	req, _ := http.NewRequest("GET", ts.URL+"/filex/v1/buckets/abc/objects?limit=abc", nil)
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("非法 limit 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	req, _ = http.NewRequest("GET", ts.URL+"/filex/v1/buckets/abc/objects?limit=1", nil)
 	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("合法 limit 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusOK)
 
 	req, _ = http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc/objects/k?upload=part&part-number=abc", strings.NewReader("v"))
 	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("非法 part-number 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	req, _ = http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc/objects/k?upload=initiate", nil)
 	req.Header.Set(proto.HeaderMetadata, "{")
 	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("initiate 非法元数据状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	req, _ = http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc?quota=abc", nil)
 	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("非法 quota 状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	req, _ = http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc/objects/k?copy=1", nil)
 	resp, err = http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("缺少源地址状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusBadRequest)
 
 	for _, c := range []struct{ method, path string }{
 		{http.MethodPut, "/filex/v1/buckets/abc/objects/"},
@@ -726,13 +673,11 @@ func TestServerInvalidInputBranches(t *testing.T) {
 	} {
 		req, _ := http.NewRequest(c.method, ts.URL+c.path, strings.NewReader("v"))
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
+		testx.RequireNoError(t, err)
+
 		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Errorf("%s %s 空键状态码不符：%d", c.method, c.path, resp.StatusCode)
-		}
+		testx.Equal(t, resp.StatusCode, http.StatusBadRequest)
+
 	}
 }
 
@@ -740,11 +685,9 @@ func TestStatusWriterWrite(t *testing.T) {
 	rec := httptest.NewRecorder()
 	sw := &statusWriter{ResponseWriter: rec}
 	_, _ = sw.Write([]byte("x"))
-	if sw.status != http.StatusOK {
-		t.Fatalf("Write 后状态码应为 200：%d", sw.status)
-	}
+	testx.RequireEqual(t, sw.status, http.StatusOK)
+
 	sw.WriteHeader(http.StatusTeapot)
-	if sw.status != http.StatusOK {
-		t.Fatalf("已写入后 WriteHeader 不应覆盖：%d", sw.status)
-	}
+	testx.RequireEqual(t, sw.status, http.StatusOK)
+
 }

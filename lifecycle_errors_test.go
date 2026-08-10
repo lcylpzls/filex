@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,9 +74,8 @@ func TestRunLifecycleExpireVersionedAndPruneError(t *testing.T) {
 	data, _ := json.Marshal(meta)
 	_ = os.WriteFile(s.versionMetaPath("abc", "k", old.VersionID), data, 0o644)
 	report, err := s.RunLifecycle(ctx, "abc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.Expired != 1 {
 		t.Fatalf("版本化过期清理不符：%+v", report)
 	}
@@ -91,9 +91,8 @@ func TestRunLifecycleExpireVersionedAndPruneError(t *testing.T) {
 		return os.Remove(name)
 	}
 	report, err = s.RunLifecycle(ctx, "abc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(report.Messages) == 0 || report.Pruned != 0 {
 		t.Fatalf("版本收敛失败应记录消息：%+v", report)
 	}
@@ -118,9 +117,8 @@ func TestRemoveObjectFilesDataError(t *testing.T) {
 		return os.Remove(name)
 	}
 	report, err := s.RunLifecycle(ctx, "abc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(report.Messages) == 0 {
 		t.Fatalf("数据删除失败应记录消息：%+v", report)
 	}
@@ -141,9 +139,8 @@ func TestSweepOrphansMore(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(s.bucketsDir, "not-dir.txt"), []byte("x"), 0o644)
 	_ = os.RemoveAll(s.objectsDir("abc"))
 	report, err := s.SweepOrphans(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.Buckets != 1 || report.RemovedData != 0 {
 		t.Fatalf("缺失对象目录应跳过：%+v", report)
 	}
@@ -174,16 +171,14 @@ func TestSweepOrphansMore(t *testing.T) {
 		return os.ReadDir(path)
 	}
 	report, err = s.SweepOrphans(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	s.fs = defaultFSOps
 	// 临时文件清理，有效版本保留
 	_ = os.WriteFile(filepath.Join(vdir, ".tmp-x"), []byte("t"), 0o644)
 	report, err = s.SweepOrphans(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.RemovedTmp != 1 {
 		t.Fatalf("版本目录临时文件清理不符：%+v", report)
 	}
@@ -195,9 +190,8 @@ func TestSweepOrphansMore(t *testing.T) {
 	up, _ := s.InitiateMultipartUpload(ctx, "abc", "upload-key", PutOptions{})
 	_, _ = s.UploadPart(ctx, "abc", "upload-key", up.UploadID, 1, strings.NewReader("p"))
 	report, err = s.SweepOrphans(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := os.Stat(s.uploadMetaPath("abc", up.UploadID)); err != nil {
 		t.Fatal("活动分片会话不应被清理")
 	}

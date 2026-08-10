@@ -6,6 +6,7 @@ require (
 	github.com/lcylpzls/filex v0.7.0
 	github.com/lcylpzls/httpx v1.0.2
 	github.com/lcylpzls/logx v1.0.0
+	github.com/lcylpzls/testx v1.2.0
 	github.com/lcylpzls/webx/v2 v2.0.1
 )
 
@@ -13,7 +14,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/lcylpzls/confx v0.3.1 // indirect
-	github.com/lcylpzls/errx v1.3.1 // indirect
+	github.com/lcylpzls/errx v1.4.0 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.61.0 // indirect

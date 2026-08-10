@@ -3,6 +3,7 @@ package filex
 import (
 	"context"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"os"
 	"strings"
 	"testing"
@@ -53,9 +54,8 @@ func TestVerifyAll(t *testing.T) {
 	_ = s.Delete(ctx, "vbc", "k")
 
 	report, err := s.VerifyAll(ctx, 0)
-	if err != nil {
-		t.Fatalf("VerifyAll 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.Scanned != 4 || report.Corrupt != 1 {
 		t.Fatalf("审计报告不符：%+v", report)
 	}
@@ -71,9 +71,8 @@ func TestVerifyAllEncrypted(t *testing.T) {
 	mustBucket(t, s, "abc")
 	_, _ = s.Put(context.Background(), "abc", "k", strings.NewReader("secret"), PutOptions{})
 	report, err := s.VerifyAll(context.Background(), 2)
-	if err != nil {
-		t.Fatalf("加密对象审计失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.Scanned != 1 || report.Corrupt != 0 {
 		t.Fatalf("加密对象审计报告不符：%+v", report)
 	}
@@ -149,9 +148,8 @@ func TestVerifyAllErrors(t *testing.T) {
 		return os.ReadDir(path)
 	}
 	report, err := s.VerifyAll(ctx, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(report.Errors) == 0 {
 		t.Fatalf("对象枚举失败应记录：%+v", report)
 	}

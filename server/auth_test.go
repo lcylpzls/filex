@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -18,9 +19,8 @@ import (
 func authDo(t *testing.T, ts *httptest.Server, method, path string, hdr http.Header) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, ts.URL+path, strings.NewReader(""))
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if hdr.Get("X-Filex-Timestamp") == "" {
 		hdr = hdr.Clone()
 		hdr.Set("X-Filex-Timestamp", strconv.FormatInt(time.Now().Unix(), 10))
@@ -31,9 +31,8 @@ func authDo(t *testing.T, ts *httptest.Server, method, path string, hdr http.Hea
 		}
 	}
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	return resp
 }
@@ -45,17 +44,14 @@ func TestServerAuthToken(t *testing.T) {
 	defer ts.Close()
 
 	resp := authDo(t, ts, "PUT", "/filex/v1/buckets/abc", http.Header{})
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("缺少令牌状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusUnauthorized)
+
 	resp = authDo(t, ts, "PUT", "/filex/v1/buckets/abc", http.Header{"Authorization": {"Bearer wrong"}})
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("错误令牌状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusUnauthorized)
+
 	resp = authDo(t, ts, "PUT", "/filex/v1/buckets/abc", http.Header{"Authorization": {"Bearer secret"}})
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("正确令牌状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusCreated)
+
 }
 
 func TestServerAuthTimestamp(t *testing.T) {
@@ -68,24 +64,20 @@ func TestServerAuthTimestamp(t *testing.T) {
 	req, _ := http.NewRequest("PUT", ts.URL+"/filex/v1/buckets/abc", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("缺少时间戳状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusUnauthorized)
+
 	// 非法时间戳
 	resp = authDo(t, ts, "PUT", "/filex/v1/buckets/abc", http.Header{"Authorization": {"Bearer secret"}, "X-Filex-Timestamp": {"abc"}})
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("非法时间戳状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusUnauthorized)
+
 	// 过期时间戳
 	stale := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
 	resp = authDo(t, ts, "PUT", "/filex/v1/buckets/abc", http.Header{"Authorization": {"Bearer secret"}, "X-Filex-Timestamp": {stale}})
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("过期时间戳状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusUnauthorized)
+
 }
 
 func TestServerAuthHMAC(t *testing.T) {
@@ -96,17 +88,15 @@ func TestServerAuthHMAC(t *testing.T) {
 	defer ts.Close()
 
 	c, err := client.New(ts.URL, client.WithHMAC(secret))
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := c.CreateBucket(context.Background(), "abc"); err != nil {
 		t.Fatalf("HMAC 客户端失败：%v", err)
 	}
 
 	resp := authDo(t, ts, "GET", "/filex/v1/buckets", http.Header{})
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("缺少签名状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusUnauthorized)
+
 }
 
 func TestServerAuthCallbackAndAudit(t *testing.T) {
@@ -126,13 +116,11 @@ func TestServerAuthCallbackAndAudit(t *testing.T) {
 	defer ts.Close()
 
 	resp := authDo(t, ts, "PUT", "/filex/v1/buckets/abc", http.Header{})
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("回调拒绝状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusForbidden)
+
 	resp = authDo(t, ts, "PUT", "/filex/v1/buckets/abc", http.Header{"X-User": {"ok"}})
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("回调通过状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusCreated)
+
 	if len(audits) != 2 {
 		t.Fatalf("审计事件数量不符：%d", len(audits))
 	}

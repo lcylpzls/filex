@@ -2,6 +2,7 @@ package filex
 
 import (
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"testing"
 
 	"github.com/lcylpzls/errx"
@@ -57,9 +58,8 @@ func TestErrorConstructors(t *testing.T) {
 	cause := errors.New("磁盘故障")
 	wrapped := wrapCode(cause, CodeStorageFailed, "存储失败")
 	mustErrCode(t, wrapped, CodeStorageFailed)
-	if !errors.Is(wrapped, cause) {
-		t.Fatal("wrapCode 应保留原始错误链")
-	}
+	testx.RequireErrorIs(t, wrapped, cause)
+
 }
 
 func TestErrCodeOf(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	testx "github.com/lcylpzls/testx"
 	"io"
 	"math/big"
 	"net"
@@ -29,9 +30,8 @@ import (
 func writeTestCert(t *testing.T) (string, string) {
 	t.Helper()
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject:      pkix.Name{CommonName: "127.0.0.1"},
@@ -42,9 +42,8 @@ func writeTestCert(t *testing.T) (string, string) {
 		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	dir := t.TempDir()
 	certFile := filepath.Join(dir, "cert.pem")
 	keyFile := filepath.Join(dir, "key.pem")
@@ -73,9 +72,8 @@ func (t *h3Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestHTTP3RoundTrip(t *testing.T) {
 	certFile, keyFile := writeTestCert(t)
 	store, err := filex.New(filex.Config{DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	defer store.Close()
 
 	var mu sync.Mutex
@@ -90,9 +88,8 @@ func TestHTTP3RoundTrip(t *testing.T) {
 			mu.Unlock()
 		},
 	}, certFile, keyFile, "127.0.0.1:0", testLogger())
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	defer s.Stop(context.Background())
 
 	h3, err := httpx.New(
@@ -100,24 +97,20 @@ func TestHTTP3RoundTrip(t *testing.T) {
 		httpx.WithProtocol(httpx.ProtocolHTTP3),
 		httpx.WithTLSClientConfig(&tls.Config{InsecureSkipVerify: true}),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	c, err := filexclient.New("https://"+addr,
 		filexclient.WithHTTPClient(&http.Client{Transport: &h3Transport{c: h3}}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_, _ = c.CreateBucket(ctx, "demo")
 	_, err = c.Put(ctx, "demo", "hello.txt", strings.NewReader("你好，HTTP/3"),
 		filex.PutOptions{ContentType: "text/plain"})
-	if err != nil {
-		t.Fatalf("HTTP/3 写入失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	obj, err := c.Get(ctx, "demo", "hello.txt", filex.GetOptions{Verify: true})
-	if err != nil {
-		t.Fatalf("HTTP/3 读取失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data, err := io.ReadAll(obj)
 	_ = obj.Close()
 	if err != nil || string(data) != "你好，HTTP/3" {
@@ -133,7 +126,6 @@ func TestHTTP3RoundTrip(t *testing.T) {
 			break
 		}
 	}
-	if !hit {
-		t.Fatalf("未观察到 HTTP/3 请求，实际协议：%v", protos)
-	}
+	testx.RequireTrue(t, hit)
+
 }

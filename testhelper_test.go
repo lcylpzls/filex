@@ -1,6 +1,7 @@
 package filex
 
 import (
+	testx "github.com/lcylpzls/testx"
 	"sync"
 	"testing"
 
@@ -58,9 +59,8 @@ func (f *fakeMetrics) IncError(bucket, code string) {
 // mustErrCode 断言错误包含指定 errx 错误码。
 func mustErrCode(t *testing.T, err error, code errx.Code) {
 	t.Helper()
-	if err == nil {
-		t.Fatalf("期望错误码 %s，实际无错误", code)
-	}
+	testx.RequireError(t, err)
+
 	if !errx.Is(err, code) {
 		t.Fatalf("期望错误码 %s，实际 %v", code, err)
 	}

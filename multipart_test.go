@@ -3,6 +3,7 @@ package filex
 import (
 	"context"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,9 +20,8 @@ func TestMultipartLifecycle(t *testing.T) {
 		ContentType: "application/octet-stream",
 		Metadata:    map[string]string{"multipart": "yes"},
 	})
-	if err != nil {
-		t.Fatalf("创建分片会话失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if up.UploadID == "" || up.Bucket != "abc" || up.Key != "big/file.bin" {
 		t.Fatalf("会话信息不符：%+v", up)
 	}
@@ -31,9 +31,8 @@ func TestMultipartLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	p1, err := s.UploadPart(ctx, "abc", "big/file.bin", up.UploadID, 1, strings.NewReader("aaa"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if p1.PartNumber != 1 || p1.Size != 3 || p1.SHA256 != sha256Hex("aaa") {
 		t.Fatalf("部件信息不符：%+v", p1)
 	}
@@ -46,17 +45,15 @@ func TestMultipartLifecycle(t *testing.T) {
 	}
 
 	parts, err := s.ListParts(ctx, "abc", "big/file.bin", up.UploadID)
-	if err != nil {
-		t.Fatalf("ListParts 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(parts) != 3 || parts[0].PartNumber != 1 || parts[1].PartNumber != 2 || parts[1].Size != 3 {
 		t.Fatalf("部件列表不符：%+v", parts)
 	}
 
 	info, err := s.CompleteMultipartUpload(ctx, "abc", "big/file.bin", up.UploadID)
-	if err != nil {
-		t.Fatalf("完成分片上传失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	want := "aaaBBBccc"
 	if info.ETag != sha256Hex(want) || info.Size != int64(len(want)) {
 		t.Fatalf("合并对象信息不符：%+v", info)
@@ -65,9 +62,8 @@ func TestMultipartLifecycle(t *testing.T) {
 		t.Fatalf("元数据未保留：%+v", info.Metadata)
 	}
 	obj, err := s.Get(ctx, "abc", "big/file.bin", GetOptions{Verify: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	data, err := io.ReadAll(obj)
 	_ = obj.Close()
 	if err != nil || string(data) != want {
@@ -83,9 +79,8 @@ func TestMultipartAbort(t *testing.T) {
 	mustBucket(t, s, "abc")
 	ctx := context.Background()
 	up, err := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_, _ = s.UploadPart(ctx, "abc", "k", up.UploadID, 1, strings.NewReader("v"))
 	if err := s.AbortMultipartUpload(ctx, "abc", "k", up.UploadID); err != nil {
 		t.Fatalf("中止失败：%v", err)
@@ -143,9 +138,8 @@ func TestMultipartErrors(t *testing.T) {
 	}
 
 	up, err := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := s.UploadPart(ctx, "abc", "k", up.UploadID, 0, strings.NewReader("v")); err == nil {
 		t.Fatal("部件号 0 应报错")
 	}
@@ -447,9 +441,8 @@ func TestMultipartAbortAndListErrors(t *testing.T) {
 	up3, _ := s.InitiateMultipartUpload(ctx, "abc", "k3", PutOptions{})
 	_ = os.WriteFile(s.partMetaPath("abc", up3.UploadID, 1), []byte("{"), 0o644)
 	parts, err := s.ListParts(ctx, "abc", "k3", up3.UploadID)
-	if err != nil {
-		t.Fatalf("损坏部件应跳过：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(parts) != 0 {
 		t.Fatalf("损坏部件不应返回：%+v", parts)
 	}
@@ -495,12 +488,9 @@ func TestMultipartVersionedAndQuota(t *testing.T) {
 	up, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
 	_, _ = s.UploadPart(ctx, "abc", "k", up.UploadID, 1, strings.NewReader("aaa"))
 	info, err := s.CompleteMultipartUpload(ctx, "abc", "k", up.UploadID)
-	if err != nil {
-		t.Fatalf("版本化分片完成失败：%v", err)
-	}
-	if info.VersionID == "" {
-		t.Fatal("版本化桶分片应生成版本")
-	}
+	testx.RequireNoError(t, err)
+
+	testx.RequireNotEqual(t, info.VersionID, "")
 
 	up2, _ := s.InitiateMultipartUpload(ctx, "abc", "k", PutOptions{})
 	_, _ = s.UploadPart(ctx, "abc", "k", up2.UploadID, 1, strings.NewReader("bbb"))

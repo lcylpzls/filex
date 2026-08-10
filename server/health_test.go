@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,9 +32,8 @@ func (m *serverMetrics) IncError(bucket, code string) {
 func TestServerHealth(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	c, err := client.New(ts.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if err := c.Health(context.Background()); err != nil {
 		t.Fatalf("健康检查失败：%v", err)
 	}
@@ -42,13 +42,11 @@ func TestServerHealth(t *testing.T) {
 	ts2 := httptest.NewServer(NewHandler(HandlerConfig{Store: f}))
 	defer ts2.Close()
 	resp, err := http.Get(ts2.URL + "/filex/v1/health")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("健康检查失败状态码不符：%d", resp.StatusCode)
-	}
+	testx.RequireEqual(t, resp.StatusCode, http.StatusInternalServerError)
+
 }
 
 func TestServerMetrics(t *testing.T) {

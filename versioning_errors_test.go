@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -414,9 +415,8 @@ func TestCollectCurrentMetasCorruptFlat(t *testing.T) {
 	_, _ = s.SetBucketVersioning(ctx, "abc", true)
 	_ = os.WriteFile(s.objectMetaPath("abc", "k"), []byte("{"), 0o644)
 	result, err := s.List(ctx, "abc", ListOptions{})
-	if err != nil {
-		t.Fatalf("损坏扁平元数据应跳过：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(result.Objects) != 0 {
 		t.Fatalf("损坏扁平元数据不应返回：%+v", result.Objects)
 	}
@@ -453,9 +453,8 @@ func TestSortMetasTieBreak(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(dir, "v-"+v+".json"), data, 0o644)
 	}
 	versions, err := s.ListVersions(ctx, "abc", "k")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(versions) < 2 || versions[0].VersionID != v2 {
 		t.Fatalf("同时间戳应按 VersionID 降序：%+v", versions)
 	}
@@ -477,9 +476,8 @@ func TestCollectMetasStrayFiles(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(s.objectsDir("abc"), "junk"), []byte("x"), 0o644)
 
 	result, err := s.List(ctx, "abc", ListOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(result.Objects) != 1 {
 		t.Fatalf("多余文件应跳过：%+v", result.Objects)
 	}

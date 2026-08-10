@@ -3,6 +3,7 @@ package filex
 import (
 	"context"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,9 +15,8 @@ func TestBucketMetadata(t *testing.T) {
 	s, _ := newStore(t)
 	ctx := context.Background()
 	info, err := s.CreateBucket(ctx, "abc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if info.Versioning || info.Quota != 0 {
 		t.Fatalf("默认桶元数据不符：%+v", info)
 	}
@@ -85,9 +85,8 @@ func TestVersionedLifecycle(t *testing.T) {
 		t.Fatalf("版本列表不符：%+v, %v", versions, err)
 	}
 	old, err := s.GetVersion(ctx, "abc", "k", v1.VersionID, GetOptions{})
-	if err != nil {
-		t.Fatalf("GetVersion 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	oldData, _ := io.ReadAll(old)
 	_ = old.Close()
 	if string(oldData) != "aaa" {
@@ -116,9 +115,8 @@ func TestVersionedLifecycle(t *testing.T) {
 
 	// 恢复历史版本
 	restored, err := s.RestoreVersion(ctx, "abc", "k", v1.VersionID)
-	if err != nil {
-		t.Fatalf("RestoreVersion 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if restored.VersionID == v1.VersionID || restored.ETag != sha256Hex("aaa") {
 		t.Fatalf("恢复版本不符：%+v", restored)
 	}
@@ -153,9 +151,8 @@ func TestVersionedListAndDeleteMarker(t *testing.T) {
 	_, _ = s.Put(ctx, "abc", "dir/b.txt", strings.NewReader("B"), PutOptions{})
 
 	result, err := s.List(ctx, "abc", ListOptions{Delimiter: "/"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(result.Objects) != 1 || result.Objects[0].Key != "a.txt" {
 		t.Fatalf("列表对象不符：%+v", result.Objects)
 	}
@@ -220,9 +217,8 @@ func TestVersioningErrors(t *testing.T) {
 	badDir := s.versionDir("abc", "k")
 	_ = os.WriteFile(filepath.Join(badDir, "v-bad.json"), []byte("{"), 0o644)
 	versions, err := s.ListVersions(ctx, "abc", "k")
-	if err != nil {
-		t.Fatalf("损坏版本应跳过：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = versions
 }
 
@@ -238,16 +234,14 @@ func TestCopyMove(t *testing.T) {
 		PutOptions{ContentType: "text/plain", Metadata: map[string]string{"m": "1"}})
 
 	info, err := s.Copy(ctx, "src", "a.txt", "dst", "b.txt")
-	if err != nil {
-		t.Fatalf("Copy 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if info.ETag != sha256Hex("HELLO") || info.ContentType != "text/plain" || info.Metadata["m"] != "1" {
 		t.Fatalf("复制元数据不符：%+v", info)
 	}
 	moved, err := s.Move(ctx, "src", "a.txt", "dst", "c.txt")
-	if err != nil {
-		t.Fatalf("Move 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if moved.ETag != sha256Hex("HELLO") {
 		t.Fatalf("Move 内容不符：%+v", moved)
 	}
@@ -268,9 +262,8 @@ func TestQuota(t *testing.T) {
 	ctx := context.Background()
 	_, _ = s.SetBucketQuota(ctx, "abc", 5)
 	_, err := s.Put(ctx, "abc", "a", strings.NewReader("hello"), PutOptions{})
-	if err != nil {
-		t.Fatalf("配额内写入失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := s.Put(ctx, "abc", "b", strings.NewReader("world"), PutOptions{}); err == nil {
 		t.Fatal("超配额应报错")
 	} else {
@@ -333,9 +326,8 @@ func TestVersioningLegacyFallback(t *testing.T) {
 	_, _ = s.SetBucketVersioning(ctx, "abc", true)
 
 	obj, err := s.Get(ctx, "abc", "legacy", GetOptions{})
-	if err != nil {
-		t.Fatalf("开启版本化后旧对象应可读：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data, _ := io.ReadAll(obj)
 	_ = obj.Close()
 	if string(data) != "old" {
@@ -366,9 +358,8 @@ func TestVersioningLegacyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	obj3, err := s.Get(ctx, "abc", "legacy", GetOptions{})
-	if err != nil {
-		t.Fatalf("删除标记移除后应回到新版本：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data3, _ := io.ReadAll(obj3)
 	_ = obj3.Close()
 	if string(data3) != "new" {
@@ -379,9 +370,8 @@ func TestVersioningLegacyFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	obj3, err = s.Get(ctx, "abc", "legacy", GetOptions{})
-	if err != nil {
-		t.Fatalf("删除标记移除后应回退旧对象：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data3, _ = io.ReadAll(obj3)
 	_ = obj3.Close()
 	if string(data3) != "old" {

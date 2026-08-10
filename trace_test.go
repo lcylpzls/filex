@@ -3,6 +3,7 @@ package filex
 import (
 	"bytes"
 	"context"
+	testx "github.com/lcylpzls/testx"
 	"strings"
 	"sync"
 	"testing"
@@ -49,9 +50,8 @@ func (h *fakeTraceHook) snapshot() []traceCall {
 func TestTraceHook(t *testing.T) {
 	hook := &fakeTraceHook{}
 	s, err := New(Config{DataDir: t.TempDir(), TraceHook: hook})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	defer s.Close()
 	ctx := context.Background()
 	if _, err := s.CreateBucket(ctx, "bucket"); err != nil {

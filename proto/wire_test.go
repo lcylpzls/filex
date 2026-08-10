@@ -2,6 +2,7 @@ package proto
 
 import (
 	"encoding/json"
+	testx "github.com/lcylpzls/testx"
 	"testing"
 	"time"
 
@@ -69,9 +70,8 @@ func TestListWireRoundTrip(t *testing.T) {
 func TestErrorBodyJSON(t *testing.T) {
 	body := ErrorBody{Code: "filex_bucket_not_found", Kind: "not_found", Message: "桶不存在", RequestID: "r1"}
 	data, err := json.Marshal(body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	var back ErrorBody
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatal(err)

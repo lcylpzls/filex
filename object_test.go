@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,9 +25,8 @@ func mustBucket(t *testing.T, s *Store, name string) {
 func mustPut(t *testing.T, s *Store, bucket, key, content string, opts PutOptions) ObjectInfo {
 	t.Helper()
 	info, err := s.Put(context.Background(), bucket, key, strings.NewReader(content), opts)
-	if err != nil {
-		t.Fatalf("写入对象失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	return info
 }
 
@@ -55,12 +55,9 @@ func TestPutSuccess(t *testing.T) {
 
 	// 覆盖写入
 	info2 := mustPut(t, s, "abc", "a.txt", "world", PutOptions{})
-	if info2.ETag == info.ETag {
-		t.Fatal("覆盖后 ETag 应变化")
-	}
-	if info2.ContentType != "application/octet-stream" {
-		t.Fatalf("默认内容类型应为 octet-stream：%s", info2.ContentType)
-	}
+	testx.RequireNotEqual(t, info2.ETag, info.ETag)
+
+	testx.RequireEqual(t, info2.ContentType, "application/octet-stream")
 
 	// 期望校验通过
 	info3 := mustPut(t, s, "abc", "b.txt", "data", PutOptions{
@@ -175,9 +172,8 @@ func TestPutIOErrors(t *testing.T) {
 func TestPutTooLarge(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New(Config{DataDir: dir, MaxObjectSize: 4})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	defer s.Close()
 	mustBucket(t, s, "abc")
 	if _, err := s.Put(context.Background(), "abc", "k", strings.NewReader("hello"), PutOptions{}); err == nil {
@@ -194,26 +190,22 @@ func TestGetSuccess(t *testing.T) {
 	mustPut(t, s, "abc", "a.txt", "hello", PutOptions{ContentType: "text/plain"})
 
 	obj, err := s.Get(ctx, "abc", "a.txt", GetOptions{})
-	if err != nil {
-		t.Fatalf("读取对象失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data, err := io.ReadAll(obj)
-	if err != nil {
-		t.Fatalf("读取内容失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if string(data) != "hello" {
 		t.Fatalf("内容不符：%s", data)
 	}
 	_ = obj.Close()
 
 	obj2, err := s.Get(ctx, "abc", "a.txt", GetOptions{Verify: true})
-	if err != nil {
-		t.Fatalf("校验读取失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data2, err := io.ReadAll(obj2)
-	if err != nil {
-		t.Fatalf("校验读取内容失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if string(data2) != "hello" {
 		t.Fatalf("校验内容不符：%s", data2)
 	}
@@ -228,16 +220,14 @@ func TestGetVerifyMismatch(t *testing.T) {
 
 	dataPath := s.objectDataPath("abc", "a.txt")
 	f, err := os.OpenFile(dataPath, os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_, _ = f.WriteAt([]byte("X"), 0)
 	_ = f.Close()
 
 	obj, err := s.Get(ctx, "abc", "a.txt", GetOptions{Verify: true})
-	if err != nil {
-		t.Fatalf("打开校验对象失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	defer obj.Close()
 	if _, err := io.ReadAll(obj); err == nil {
 		t.Fatal("校验失败应报错")
@@ -255,14 +245,12 @@ func TestGetRange(t *testing.T) {
 	readRange := func(rng ByteRange) string {
 		t.Helper()
 		obj, err := s.Get(ctx, "abc", "a.txt", GetOptions{Range: &rng})
-		if err != nil {
-			t.Fatalf("范围读取失败：%v", err)
-		}
+		testx.RequireNoError(t, err)
+
 		defer obj.Close()
 		data, err := io.ReadAll(obj)
-		if err != nil {
-			t.Fatalf("范围读取内容失败：%v", err)
-		}
+		testx.RequireNoError(t, err)
+
 		return string(data)
 	}
 
@@ -362,9 +350,8 @@ func TestHead(t *testing.T) {
 	mustPut(t, s, "abc", "k", "v", PutOptions{ContentType: "text/plain"})
 
 	info, err := s.Head(ctx, "abc", "k")
-	if err != nil {
-		t.Fatalf("Head 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if info.ETag != sha256Hex("v") || info.ContentType != "text/plain" {
 		t.Fatalf("Head 元数据不符：%+v", info)
 	}
@@ -400,12 +387,10 @@ func TestHead(t *testing.T) {
 	})
 	_ = os.WriteFile(s.objectMetaPath("abc", nakedKey), nakedMeta, 0o644)
 	nakedInfo, err := s.Head(ctx, "abc", nakedKey)
-	if err != nil {
-		t.Fatalf("读取裸元数据失败：%v", err)
-	}
-	if nakedInfo.ContentType != "application/octet-stream" {
-		t.Fatalf("默认内容类型不符：%s", nakedInfo.ContentType)
-	}
+	testx.RequireNoError(t, err)
+
+	testx.RequireEqual(t, nakedInfo.ContentType, "application/octet-stream")
+
 }
 
 func TestDelete(t *testing.T) {
@@ -488,9 +473,8 @@ func TestList(t *testing.T) {
 	}
 
 	result, err := s.List(ctx, "abc", ListOptions{Limit: 2, Delimiter: "/"})
-	if err != nil {
-		t.Fatalf("List 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(result.Objects) != 1 || result.Objects[0].Key != "a.txt" {
 		t.Fatalf("对象列表不符：%+v", result.Objects)
 	}
@@ -502,26 +486,23 @@ func TestList(t *testing.T) {
 	}
 
 	next, err := s.List(ctx, "abc", ListOptions{Marker: result.NextMarker, Delimiter: "/"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(next.Objects) != 0 || len(next.CommonPrefixes) != 2 ||
 		next.CommonPrefixes[0] != "dir/" || next.CommonPrefixes[1] != "x/" {
 		t.Fatalf("第二页不符：%+v", next)
 	}
 
 	prefixed, err := s.List(ctx, "abc", ListOptions{Prefix: "dir/", Delimiter: "/"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(prefixed.Objects) != 2 || len(prefixed.CommonPrefixes) != 0 {
 		t.Fatalf("前缀过滤不符：%+v", prefixed)
 	}
 
 	one, err := s.List(ctx, "abc", ListOptions{Limit: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(one.Objects) != 1 || !one.IsTruncated || one.Objects[0].Key != "a.txt" {
 		t.Fatalf("对象截断不符：%+v", one)
 	}
@@ -553,9 +534,8 @@ func TestList(t *testing.T) {
 
 	// 同一公共前缀多次出现只聚合一次
 	all, err := s.List(ctx, "abc", ListOptions{Limit: 10, Delimiter: "/"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(all.CommonPrefixes) != 2 || all.CommonPrefixes[0] != "dir/" || all.CommonPrefixes[1] != "x/" {
 		t.Fatalf("公共前缀应去重：%+v", all.CommonPrefixes)
 	}
@@ -573,13 +553,11 @@ func TestList(t *testing.T) {
 	_ = os.MkdirAll(filepath.Dir(badMetaPath), 0o755)
 	_ = os.WriteFile(badMetaPath, []byte("{"), 0o644)
 	result2, err := s.List(ctx, "abc", ListOptions{})
-	if err != nil {
-		t.Fatalf("损坏元数据应跳过：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	for _, o := range result2.Objects {
-		if o.Key == badKey {
-			t.Fatal("损坏元数据不应返回")
-		}
+		testx.RequireNotEqual(t, o.Key, badKey)
+
 	}
 }
 
@@ -598,16 +576,14 @@ func TestListContextCancel(t *testing.T) {
 func TestNopMetrics(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New(Config{DataDir: dir})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	defer s.Close()
 	mustBucket(t, s, "abc")
 	mustPut(t, s, "abc", "k", "v", PutOptions{})
 	obj, err := s.Get(context.Background(), "abc", "k", GetOptions{})
-	if err != nil {
-		t.Fatalf("读取失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = obj.Close()
 	if err := s.Delete(context.Background(), "abc", "k"); err != nil {
 		t.Fatalf("删除失败：%v", err)

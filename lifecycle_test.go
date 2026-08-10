@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,9 +65,8 @@ func TestSetBucketLifecycle(t *testing.T) {
 func ageObject(t *testing.T, s *Store, bucket, key string, days int) {
 	t.Helper()
 	meta, err := readObjectMeta(s.fs, s.objectMetaPath(bucket, key))
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	meta.UpdatedAt = time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
 	data, _ := json.Marshal(meta)
 	_ = os.WriteFile(s.objectMetaPath(bucket, key), data, 0o644)
@@ -82,9 +82,8 @@ func TestRunLifecycleExpire(t *testing.T) {
 	ageObject(t, s, "abc", "old", 2)
 
 	report, err := s.RunLifecycle(ctx, "abc")
-	if err != nil {
-		t.Fatalf("RunLifecycle 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.Scanned != 2 || report.Expired != 1 {
 		t.Fatalf("清理报告不符：%+v", report)
 	}
@@ -107,9 +106,8 @@ func TestRunLifecycleMaxVersions(t *testing.T) {
 	_, _ = s.Put(ctx, "abc", "k", strings.NewReader("v3"), PutOptions{})
 
 	report, err := s.RunLifecycle(ctx, "abc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.Pruned != 1 {
 		t.Fatalf("版本收敛数量不符：%+v", report)
 	}
@@ -143,9 +141,8 @@ func TestRunLifecycleErrors(t *testing.T) {
 		return os.Remove(name)
 	}
 	report, err := s.RunLifecycle(ctx, "abc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(report.Messages) == 0 || report.Expired != 0 {
 		t.Fatalf("删除失败应记录消息：%+v", report)
 	}
@@ -165,9 +162,8 @@ func TestSweepOrphans(t *testing.T) {
 	_ = os.Remove(s.versionMetaPath("abc", "vk", info.VersionID))
 
 	report, err := s.SweepOrphans(ctx)
-	if err != nil {
-		t.Fatalf("SweepOrphans 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.Buckets != 1 || report.RemovedData != 2 || report.RemovedTmp != 1 {
 		t.Fatalf("孤儿巡检报告不符：%+v", report)
 	}
@@ -191,9 +187,8 @@ func TestHealth(t *testing.T) {
 func ageUploadSession(t *testing.T, s *Store, bucket, uploadID string, hours int) {
 	t.Helper()
 	meta, err := readUploadMeta(s.fs, s.uploadMetaPath(bucket, uploadID))
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	meta.CreatedAt = time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
 	data, _ := json.Marshal(meta)
 	_ = os.WriteFile(s.uploadMetaPath(bucket, uploadID), data, 0o644)
@@ -208,9 +203,8 @@ func TestSweepStaleUploads(t *testing.T) {
 	ageUploadSession(t, s, "abc", stale.UploadID, 48)
 
 	report, err := s.SweepOrphans(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if report.RemovedSessions != 1 {
 		t.Fatalf("过期会话清理数量不符：%+v", report)
 	}

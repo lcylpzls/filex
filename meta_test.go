@@ -3,6 +3,7 @@ package filex
 import (
 	"encoding/json"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,12 +31,9 @@ func TestReadBucketMeta(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta, err := readBucketMeta(defaultFSOps, path)
-	if err != nil {
-		t.Fatalf("读取桶元数据失败：%v", err)
-	}
-	if meta.Name != "abc" {
-		t.Fatalf("桶名不符：%s", meta.Name)
-	}
+	testx.RequireNoError(t, err)
+
+	testx.RequireEqual(t, meta.Name, "abc")
 
 	if _, err := readBucketMeta(defaultFSOps, filepath.Join(dir, "missing.json")); !os.IsNotExist(err) {
 		t.Fatalf("应返回不存在：%v", err)
@@ -59,12 +57,10 @@ func TestReadObjectMeta(t *testing.T) {
 		t.Fatal(err)
 	}
 	meta, err := readObjectMeta(defaultFSOps, path)
-	if err != nil {
-		t.Fatalf("读取对象元数据失败：%v", err)
-	}
-	if meta.Key != "k" {
-		t.Fatalf("键不符：%s", meta.Key)
-	}
+	testx.RequireNoError(t, err)
+
+	testx.RequireEqual(t, meta.Key, "k")
+
 	if _, err := readObjectMeta(defaultFSOps, filepath.Join(dir, "missing.json")); !os.IsNotExist(err) {
 		t.Fatalf("应返回不存在：%v", err)
 	}

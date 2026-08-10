@@ -1,6 +1,7 @@
 package filex
 
 import (
+	testx "github.com/lcylpzls/testx"
 	"sync"
 	"testing"
 )
@@ -8,9 +9,8 @@ import (
 func TestShardIndex(t *testing.T) {
 	first := shardIndex("a", "b")
 	second := shardIndex("a", "b")
-	if first != second {
-		t.Fatal("同键哈希应稳定")
-	}
+	testx.RequireEqual(t, first, second)
+
 	if first == shardIndex("b", "a") {
 		t.Fatal("不同键应大概率不同分片（此处仅验证确定性）")
 	}

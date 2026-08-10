@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,16 +28,14 @@ func sha256Hex(s string) string {
 func newClientServer(t *testing.T) (*Client, *httptest.Server) {
 	t.Helper()
 	store, err := filex.New(filex.Config{DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	t.Cleanup(func() { _ = store.Close() })
 	ts := httptest.NewServer(server.NewHandler(server.HandlerConfig{Store: store}))
 	t.Cleanup(ts.Close)
 	c, err := New(ts.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	return c, ts
 }
 
@@ -67,25 +66,22 @@ func TestClientLifecycle(t *testing.T) {
 	content := "hello filex"
 	info, err := c.Put(ctx, "abc", "dir/a.txt", strings.NewReader(content),
 		filex.PutOptions{ContentType: "text/plain", Metadata: map[string]string{"k": "v"}})
-	if err != nil {
-		t.Fatalf("Put 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if info.ETag != sha256Hex(content) {
 		t.Fatalf("ETag 不符：%s", info.ETag)
 	}
 
 	head, err := c.Head(ctx, "abc", "dir/a.txt")
-	if err != nil {
-		t.Fatalf("Head 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if head.ContentType != "text/plain" || head.Metadata["k"] != "v" {
 		t.Fatalf("Head 元数据不符：%+v", head)
 	}
 
 	obj, err := c.Get(ctx, "abc", "dir/a.txt", filex.GetOptions{Verify: true})
-	if err != nil {
-		t.Fatalf("Get 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data, err := io.ReadAll(obj)
 	_ = obj.Close()
 	if err != nil || string(data) != content {
@@ -109,9 +105,8 @@ func TestClientLifecycle(t *testing.T) {
 
 	rng := filex.ByteRange{Start: 1, End: 3}
 	ranged, err := c.Get(ctx, "abc", "dir/a.txt", filex.GetOptions{Range: &rng})
-	if err != nil {
-		t.Fatalf("范围读取失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	rangeData, _ := io.ReadAll(ranged)
 	_ = ranged.Close()
 	if string(rangeData) != "ell" {
@@ -177,9 +172,8 @@ func TestClientErrors(t *testing.T) {
 
 func TestClientDoAndHeaderBranches(t *testing.T) {
 	c, err := New("https://example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := c.do(context.Background(), ":", "/", nil, nil); err == nil {
 		t.Fatal("非法方法经 do 应报错")
 	}
@@ -258,13 +252,10 @@ func TestClientOptionsAndNew(t *testing.T) {
 		}, nil
 	})
 	c, err := New("https://example.com", WithToken("tok"), WithHTTPClient(&http.Client{Transport: rt}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = c.DeleteBucket(context.Background(), "abc")
-	if gotAuth != "Bearer tok" {
-		t.Fatalf("Authorization 头不符：%q", gotAuth)
-	}
+	testx.RequireEqual(t, gotAuth, "Bearer tok")
 
 	var gotTS, gotSig string
 	rt2 := roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -278,9 +269,8 @@ func TestClientOptionsAndNew(t *testing.T) {
 		}, nil
 	})
 	c2, err := New("https://example.com", WithHMAC([]byte("secret")))
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	c2.httpClient = &http.Client{Transport: rt2}
 	_ = c2.DeleteBucket(context.Background(), "abc")
 	if gotTS == "" || len(gotSig) != 64 {
@@ -296,9 +286,8 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func TestClientNewRequestAndDoErrors(t *testing.T) {
 	c, err := New("https://example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := c.newRequest(context.Background(), ":", "/", nil, nil); err == nil {
 		t.Fatal("非法方法应报错")
 	}
@@ -369,9 +358,8 @@ func TestClientParseObjectHeaders(t *testing.T) {
 	hdr.Set(proto.HeaderCreatedAt, "2026-08-10T00:00:00Z")
 	hdr.Set("Last-Modified", "Mon, 10 Aug 2026 00:00:00 GMT")
 	info, err := parseObjectHeaders("abc", "k", hdr)
-	if err != nil {
-		t.Fatalf("解析响应头失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if info.Size != 5 || info.ETag != "etag" || info.VersionID != "v1" || info.Metadata["a"] != "b" {
 		t.Fatalf("对象信息不符：%+v", info)
 	}
@@ -408,9 +396,8 @@ func TestClientGetConditional(t *testing.T) {
 	ctx := context.Background()
 	_, _ = c.CreateBucket(ctx, "abc")
 	info, err := c.Put(ctx, "abc", "k", strings.NewReader("v"), filex.PutOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	obj, err := c.Get(ctx, "abc", "k", filex.GetOptions{IfNoneMatch: `"` + info.ETag + `"`})
 	if err == nil {
 		_ = obj.Close()
@@ -427,9 +414,8 @@ func TestClientMultipartLifecycle(t *testing.T) {
 
 	up, err := c.InitiateMultipartUpload(ctx, "abc", "big",
 		filex.PutOptions{ContentType: "text/plain", Metadata: map[string]string{"k": "v"}})
-	if err != nil {
-		t.Fatalf("Initiate 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := c.InitiateMultipartUpload(ctx, "missing", "big", filex.PutOptions{}); err == nil {
 		t.Fatal("缺失桶 Initiate 应报错")
 	}
@@ -444,9 +430,8 @@ func TestClientMultipartLifecycle(t *testing.T) {
 		t.Fatalf("ListParts 不符：%+v, %v", parts, err)
 	}
 	info, err := c.CompleteMultipartUpload(ctx, "abc", "big", up.UploadID)
-	if err != nil {
-		t.Fatalf("Complete 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if info.ETag != sha256Hex("aaabbb") {
 		t.Fatalf("ETag 不符：%s", info.ETag)
 	}
@@ -482,24 +467,20 @@ func TestClientVersioningAndCopy(t *testing.T) {
 		t.Fatalf("ListVersions 不符：%+v, %v", versions, err)
 	}
 	obj, err := c.GetVersion(ctx, "abc", "k", v1.VersionID, filex.GetOptions{})
-	if err != nil {
-		t.Fatalf("GetVersion 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	data, _ := io.ReadAll(obj)
 	_ = obj.Close()
 	if string(data) != "aaa" {
 		t.Fatalf("历史版本内容不符：%s", data)
 	}
-	if obj.Info.VersionID != v1.VersionID {
-		t.Fatalf("GetVersion 应返回版本 ID：%q", obj.Info.VersionID)
-	}
+	testx.RequireEqual(t, obj.Info.VersionID, v1.VersionID)
+
 	hv, err := c.HeadVersion(ctx, "abc", "k", v1.VersionID)
-	if err != nil {
-		t.Fatalf("HeadVersion 失败：%v", err)
-	}
-	if hv.VersionID != v1.VersionID {
-		t.Fatalf("HeadVersion 应返回版本 ID：%q", hv.VersionID)
-	}
+	testx.RequireNoError(t, err)
+
+	testx.RequireEqual(t, hv.VersionID, v1.VersionID)
+
 	_ = c.Delete(ctx, "abc", "k")
 	if _, err := c.RestoreVersion(ctx, "abc", "k", v1.VersionID); err != nil {
 		t.Fatalf("RestoreVersion 失败：%v", err)
@@ -554,9 +535,8 @@ func TestClientPutMultipart(t *testing.T) {
 	_, _ = c.CreateBucket(ctx, "abc")
 
 	info, err := c.PutMultipart(ctx, "abc", "big", strings.NewReader("abcdef"), filex.PutOptions{}, 2, 2)
-	if err != nil {
-		t.Fatalf("PutMultipart 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if info.ETag != sha256Hex("abcdef") {
 		t.Fatalf("ETag 不符：%s", info.ETag)
 	}
@@ -652,7 +632,6 @@ func TestClientWireJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"code":"filex_internal","kind":"internal","message":"x","requestId":"r"}`), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.RequestID != "r" {
-		t.Fatalf("线格式解析不符：%+v", body)
-	}
+	testx.RequireEqual(t, body.RequestID, "r")
+
 }

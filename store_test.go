@@ -3,6 +3,7 @@ package filex
 import (
 	"context"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,9 +18,8 @@ func newStore(t *testing.T) (*Store, string) {
 		Logger:  &fakeLogger{},
 		Metrics: newFakeMetrics(),
 	})
-	if err != nil {
-		t.Fatalf("创建 Store 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	t.Cleanup(func() { _ = s.Close() })
 	return s, dir
 }
@@ -63,12 +63,10 @@ func TestCreateBucket(t *testing.T) {
 	s, _ := newStore(t)
 	ctx := context.Background()
 	info, err := s.CreateBucket(ctx, "my-bucket")
-	if err != nil {
-		t.Fatalf("创建桶失败：%v", err)
-	}
-	if info.Name != "my-bucket" {
-		t.Fatalf("桶名不符：%s", info.Name)
-	}
+	testx.RequireNoError(t, err)
+
+	testx.RequireEqual(t, info.Name, "my-bucket")
+
 	if _, err := s.CreateBucket(ctx, "my-bucket"); err == nil {
 		t.Fatal("重复创建应报错")
 	} else {
@@ -161,12 +159,10 @@ func TestHeadBucket(t *testing.T) {
 	}
 	_, _ = s.CreateBucket(ctx, "abc")
 	info, err := s.HeadBucket(ctx, "abc")
-	if err != nil {
-		t.Fatalf("HeadBucket 失败：%v", err)
-	}
-	if info.Name != "abc" {
-		t.Fatalf("桶名不符：%s", info.Name)
-	}
+	testx.RequireNoError(t, err)
+
+	testx.RequireEqual(t, info.Name, "abc")
+
 	if _, err := s.HeadBucket(ctx, "BAD"); err == nil {
 		t.Fatal("非法桶名应报错")
 	}
@@ -178,9 +174,8 @@ func TestListBuckets(t *testing.T) {
 	_, _ = s.CreateBucket(ctx, "bbb")
 	_, _ = s.CreateBucket(ctx, "aaa")
 	buckets, err := s.ListBuckets(ctx)
-	if err != nil {
-		t.Fatalf("ListBuckets 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(buckets) != 2 || buckets[0].Name != "aaa" || buckets[1].Name != "bbb" {
 		t.Fatalf("桶列表应排序：%+v", buckets)
 	}
@@ -190,9 +185,8 @@ func TestListBuckets(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(badDir, "meta.json"), []byte("{"), 0o644)
 	_ = os.WriteFile(filepath.Join(s.bucketsDir, "not-dir.txt"), []byte("x"), 0o644)
 	buckets, err = s.ListBuckets(ctx)
-	if err != nil {
-		t.Fatalf("损坏桶应跳过：%v", err)
-	}
+	testx.RequireNoError(t, err)
+
 	if len(buckets) != 2 {
 		t.Fatalf("损坏桶应被跳过：%+v", buckets)
 	}

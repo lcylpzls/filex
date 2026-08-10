@@ -3,6 +3,7 @@ package filex
 import (
 	"context"
 	"errors"
+	testx "github.com/lcylpzls/testx"
 	"os"
 	"strings"
 	"testing"
@@ -15,9 +16,8 @@ func TestBucketStats(t *testing.T) {
 	_, _ = s.Put(ctx, "abc", "a", strings.NewReader("hello"), PutOptions{})
 	_, _ = s.Put(ctx, "abc", "b", strings.NewReader("world"), PutOptions{})
 	stats, err := s.BucketStats(ctx, "abc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if stats.ObjectCount != 2 || stats.VersionCount != 2 || stats.Usage != 10 {
 		t.Fatalf("非版本化统计不符：%+v", stats)
 	}
@@ -29,9 +29,8 @@ func TestBucketStats(t *testing.T) {
 	_, _ = s.Put(ctx, "vbc", "b", strings.NewReader("bb"), PutOptions{})
 	_ = s.Delete(ctx, "vbc", "b")
 	stats, err = s.BucketStats(ctx, "vbc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if stats.ObjectCount != 2 || stats.VersionCount != 3 || stats.Usage != 7 {
 		t.Fatalf("版本化统计不符：%+v", stats)
 	}

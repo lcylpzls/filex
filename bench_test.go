@@ -3,6 +3,7 @@ package filex
 import (
 	"bytes"
 	"context"
+	testx "github.com/lcylpzls/testx"
 	"io"
 	"strconv"
 	"testing"
@@ -11,9 +12,8 @@ import (
 func benchStore(b *testing.B) *Store {
 	b.Helper()
 	s, err := New(Config{DataDir: b.TempDir()})
-	if err != nil {
-		b.Fatal(err)
-	}
+	testx.RequireNoError(b, err)
+
 	_, _ = s.CreateBucket(context.Background(), "bench")
 	b.Cleanup(func() { _ = s.Close() })
 	return s
@@ -39,9 +39,8 @@ func BenchmarkGetSmall(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		obj, err := s.Get(ctx, "bench", "k", GetOptions{})
-		if err != nil {
-			b.Fatal(err)
-		}
+		testx.RequireNoError(b, err)
+
 		_, _ = io.Copy(io.Discard, obj)
 		_ = obj.Close()
 	}

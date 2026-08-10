@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	testx "github.com/lcylpzls/testx"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -13,17 +14,15 @@ import (
 
 func TestProtocolRoundTrip(t *testing.T) {
 	store, err := filex.New(filex.Config{DataDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	defer store.Close()
 	ts := httptest.NewServer(server.NewHandler(server.HandlerConfig{Store: store}))
 	defer ts.Close()
 
 	c, err := client.New(ts.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	if _, err := c.CreateBucket(t.Context(), "demo"); err != nil {
 		t.Fatal(err)
 	}
@@ -31,9 +30,8 @@ func TestProtocolRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	obj, err := c.Get(t.Context(), "demo", "k", filex.GetOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	testx.RequireNoError(t, err)
+
 	_ = obj.Close()
 }
 
