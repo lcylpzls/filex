@@ -34,9 +34,7 @@ func TestServerHealth(t *testing.T) {
 	c, err := client.New(ts.URL)
 	testx.RequireNoError(t, err)
 
-	if err := c.Health(context.Background()); err != nil {
-		t.Fatalf("健康检查失败：%v", err)
-	}
+	testx.RequireNoError(t, c.Health(context.Background()))
 
 	f := &fakeStore{listBucketsErr: errors.New("存储不可用")}
 	ts2 := httptest.NewServer(NewHandler(HandlerConfig{Store: f}))

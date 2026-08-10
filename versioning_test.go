@@ -98,9 +98,7 @@ func TestVersionedLifecycle(t *testing.T) {
 	}
 
 	// 软删除
-	if err := s.Delete(ctx, "abc", "k"); err != nil {
-		t.Fatalf("软删除失败：%v", err)
-	}
+	testx.RequireNoError(t, s.Delete(ctx, "abc", "k"))
 	if _, err := s.Get(ctx, "abc", "k", GetOptions{}); err == nil {
 		t.Fatal("软删除后对象不可见")
 	}
@@ -128,12 +126,8 @@ func TestVersionedLifecycle(t *testing.T) {
 	}
 
 	// 永久删除指定版本
-	if err := s.DeleteVersion(ctx, "abc", "k", versions[0].VersionID); err != nil {
-		t.Fatalf("删除标记失败：%v", err)
-	}
-	if err := s.DeleteVersion(ctx, "abc", "k", v1.VersionID); err != nil {
-		t.Fatalf("删除历史版本失败：%v", err)
-	}
+	testx.RequireNoError(t, s.DeleteVersion(ctx, "abc", "k", versions[0].VersionID))
+	testx.RequireNoError(t, s.DeleteVersion(ctx, "abc", "k", v1.VersionID))
 	if _, err := s.GetVersion(ctx, "abc", "k", v1.VersionID, GetOptions{}); err == nil {
 		t.Fatal("已删版本应报错")
 	} else {

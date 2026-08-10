@@ -14,9 +14,7 @@ func TestVerifyObject(t *testing.T) {
 	mustBucket(t, s, "abc")
 	ctx := context.Background()
 	_, _ = s.Put(ctx, "abc", "k", strings.NewReader("hello"), PutOptions{})
-	if err := s.VerifyObject(ctx, "abc", "k"); err != nil {
-		t.Fatalf("完整性校验失败：%v", err)
-	}
+	testx.RequireNoError(t, s.VerifyObject(ctx, "abc", "k"))
 	dataPath := s.objectDataPath("abc", "k")
 	data, _ := os.ReadFile(dataPath)
 	data[0] ^= 0xff

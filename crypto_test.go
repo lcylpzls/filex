@@ -172,9 +172,7 @@ func TestEncryptPipeRoundTrip(t *testing.T) {
 	var buf bytes.Buffer
 	plain, finish := encryptPipe(kek, &buf)
 	_, _ = plain.Write([]byte("hello world"))
-	if err := finish(); err != nil {
-		t.Fatalf("finish 失败：%v", err)
-	}
+	testx.RequireNoError(t, finish())
 	if bytes.Contains(buf.Bytes(), []byte("hello")) {
 		t.Fatal("密文不应包含明文")
 	}
@@ -198,9 +196,7 @@ func TestDecryptReaderTampered(t *testing.T) {
 	var buf bytes.Buffer
 	plain, finish := encryptPipe(kek, &buf)
 	_, _ = plain.Write([]byte("secret"))
-	if err := finish(); err != nil {
-		t.Fatalf("finish 失败：%v", err)
-	}
+	testx.RequireNoError(t, finish())
 	tampered := append([]byte(nil), buf.Bytes()...)
 	tampered[len(tampered)-1] ^= 0xff
 	dec := decryptReader(kek, bytes.NewReader(tampered))
@@ -216,9 +212,7 @@ func TestDecryptReaderTruncated(t *testing.T) {
 	var buf bytes.Buffer
 	plain, finish := encryptPipe(kek, &buf)
 	_, _ = plain.Write([]byte("secret"))
-	if err := finish(); err != nil {
-		t.Fatalf("finish 失败：%v", err)
-	}
+	testx.RequireNoError(t, finish())
 	dec := decryptReader(kek, bytes.NewReader(buf.Bytes()[:10]))
 	if _, err := io.ReadAll(dec); err == nil {
 		t.Fatal("截断密文应报错")

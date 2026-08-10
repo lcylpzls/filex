@@ -82,9 +82,7 @@ func TestMultipartAbort(t *testing.T) {
 	testx.RequireNoError(t, err)
 
 	_, _ = s.UploadPart(ctx, "abc", "k", up.UploadID, 1, strings.NewReader("v"))
-	if err := s.AbortMultipartUpload(ctx, "abc", "k", up.UploadID); err != nil {
-		t.Fatalf("中止失败：%v", err)
-	}
+	testx.RequireNoError(t, s.AbortMultipartUpload(ctx, "abc", "k", up.UploadID))
 	if err := s.AbortMultipartUpload(ctx, "abc", "k", up.UploadID); err == nil {
 		t.Fatal("重复中止应报错")
 	} else {

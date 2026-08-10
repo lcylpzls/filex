@@ -108,15 +108,9 @@ func TestServerLifecycle(t *testing.T) {
 		t.Fatalf("列表不符：%+v, %v", list, err)
 	}
 
-	if err := c.Delete(ctx, "my-bucket", "dir/file.txt"); err != nil {
-		t.Fatalf("Delete 失败：%v", err)
-	}
-	if err := c.Delete(ctx, "my-bucket", "ascii.txt"); err != nil {
-		t.Fatalf("Delete ascii 失败：%v", err)
-	}
-	if err := c.DeleteBucket(ctx, "my-bucket"); err != nil {
-		t.Fatalf("DeleteBucket 失败：%v", err)
-	}
+	testx.RequireNoError(t, c.Delete(ctx, "my-bucket", "dir/file.txt"))
+	testx.RequireNoError(t, c.Delete(ctx, "my-bucket", "ascii.txt"))
+	testx.RequireNoError(t, c.DeleteBucket(ctx, "my-bucket"))
 	if len(logger.infos) == 0 {
 		t.Fatal("应记录协议日志")
 	}
@@ -156,9 +150,7 @@ func TestServerMultipartLifecycle(t *testing.T) {
 	testx.RequireNoError(t, err)
 
 	_, _ = c.UploadPart(ctx, "abc", "abort", up2.UploadID, 1, strings.NewReader("x"))
-	if err := c.AbortMultipartUpload(ctx, "abc", "abort", up2.UploadID); err != nil {
-		t.Fatalf("Abort 失败：%v", err)
-	}
+	testx.RequireNoError(t, c.AbortMultipartUpload(ctx, "abc", "abort", up2.UploadID))
 	if _, err := c.Get(ctx, "abc", "abort", filex.GetOptions{}); err == nil {
 		t.Fatal("中止后对象不应存在")
 	}
@@ -200,9 +192,7 @@ func TestServerVersioningCopyQuota(t *testing.T) {
 		t.Fatalf("RestoreVersion 失败：%v", err)
 	}
 	versions, _ = c.ListVersions(ctx, "abc", "k")
-	if err := c.DeleteVersion(ctx, "abc", "k", versions[1].VersionID); err != nil {
-		t.Fatalf("DeleteVersion 失败：%v", err)
-	}
+	testx.RequireNoError(t, c.DeleteVersion(ctx, "abc", "k", versions[1].VersionID))
 	if _, err := c.Copy(ctx, "abc", "k", "dst", "copy.txt"); err != nil {
 		t.Fatalf("Copy 失败：%v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lcylpzls/errx"
+	"github.com/lcylpzls/testx"
 )
 
 func TestStoreClosed(t *testing.T) {
@@ -19,12 +20,8 @@ func TestStoreClosed(t *testing.T) {
 	vi, _ := s.Put(ctx, "abc", "vk", strings.NewReader("v"), PutOptions{})
 	_ = s.Delete(ctx, "abc", "vk")
 
-	if err := s.Close(); err != nil {
-		t.Fatalf("关闭失败：%v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("重复关闭应幂等：%v", err)
-	}
+	testx.RequireNoError(t, s.Close())
+	testx.RequireNoError(t, s.Close())
 
 	cases := []struct {
 		name string

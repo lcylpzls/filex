@@ -54,9 +54,7 @@ func TestNew(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "buckets")); err != nil {
 		t.Fatalf("buckets 目录未创建：%v", err)
 	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close 失败：%v", err)
-	}
+	testx.RequireNoError(t, s.Close())
 }
 
 func TestCreateBucket(t *testing.T) {
@@ -113,17 +111,13 @@ func TestDeleteBucket(t *testing.T) {
 		mustErrCode(t, err, CodeBucketNotEmpty)
 	}
 	_ = s.Delete(ctx, "abc", "k")
-	if err := s.DeleteBucket(ctx, "abc"); err != nil {
-		t.Fatalf("空桶删除失败：%v", err)
-	}
+	testx.RequireNoError(t, s.DeleteBucket(ctx, "abc"))
 
 	_, _ = s.CreateBucket(ctx, "orphan")
 	_, _ = s.Put(ctx, "orphan", "k", strings.NewReader("v"), PutOptions{})
 	// 制造孤儿数据：只删元数据文件
 	_ = os.Remove(s.objectMetaPath("orphan", "k"))
-	if err := s.DeleteBucket(ctx, "orphan"); err != nil {
-		t.Fatalf("含孤儿数据的空桶删除失败：%v", err)
-	}
+	testx.RequireNoError(t, s.DeleteBucket(ctx, "orphan"))
 
 	injected := errors.New("注入错误")
 	_, _ = s.CreateBucket(ctx, "scanfail")

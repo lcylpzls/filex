@@ -1,6 +1,7 @@
 package filex
 
 import (
+	"github.com/lcylpzls/testx"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,12 +50,8 @@ func TestValidateKey(t *testing.T) {
 }
 
 func TestValidateMetadata(t *testing.T) {
-	if err := validateMetadata(map[string]string{"k": "v"}); err != nil {
-		t.Fatalf("合法元数据应通过：%v", err)
-	}
-	if err := validateMetadata(nil); err != nil {
-		t.Fatalf("nil 元数据应通过：%v", err)
-	}
+	testx.RequireNoError(t, validateMetadata(map[string]string{"k": "v"}))
+	testx.RequireNoError(t, validateMetadata(nil))
 	tooMany := map[string]string{}
 	for i := 0; i <= maxMetadataEntries; i++ {
 		tooMany[string(rune('a'+i%26))+strconv.Itoa(i)] = "v"

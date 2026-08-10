@@ -14,9 +14,7 @@ import (
 
 func TestObjectMetaValid(t *testing.T) {
 	ok := objectMeta{Key: "k", Size: 1, SHA256: strings.Repeat("a", 64)}
-	if err := ok.valid(); err != nil {
-		t.Fatalf("合法元数据应通过：%v", err)
-	}
+	testx.RequireNoError(t, ok.valid())
 	mustErrCode(t, (objectMeta{Size: 1, SHA256: strings.Repeat("a", 64)}).valid(), CodeMetadataCorrupt)
 	mustErrCode(t, (objectMeta{Key: "k", Size: -1, SHA256: strings.Repeat("a", 64)}).valid(), CodeMetadataCorrupt)
 	mustErrCode(t, (objectMeta{Key: "k", Size: 1, SHA256: "bad"}).valid(), CodeMetadataCorrupt)
@@ -88,9 +86,7 @@ func TestWriteJSONAtomic(t *testing.T) {
 	dir := t.TempDir()
 	store := &Store{cfg: Config{}, fs: defaultFSOps}
 	path := filepath.Join(dir, "nested", "meta.json")
-	if err := store.writeJSONAtomic(path, bucketMeta{Name: "abc"}); err != nil {
-		t.Fatalf("原子写入失败：%v", err)
-	}
+	testx.RequireNoError(t, store.writeJSONAtomic(path, bucketMeta{Name: "abc"}))
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("写入文件不存在：%v", err)
 	}

@@ -119,20 +119,14 @@ func TestClientLifecycle(t *testing.T) {
 		t.Fatalf("错误码不符：%v", err)
 	}
 
-	if err := c.Delete(ctx, "abc", "dir/a.txt"); err != nil {
-		t.Fatalf("Delete 失败：%v", err)
-	}
-	if err := c.Delete(ctx, "abc", "b.txt"); err != nil {
-		t.Fatalf("Delete b 失败：%v", err)
-	}
+	testx.RequireNoError(t, c.Delete(ctx, "abc", "dir/a.txt"))
+	testx.RequireNoError(t, c.Delete(ctx, "abc", "b.txt"))
 	if _, err := c.Get(ctx, "abc", "dir/a.txt", filex.GetOptions{}); err == nil {
 		t.Fatal("已删除对象应报错")
 	} else if !errx.Is(err, filex.CodeObjectNotFound) {
 		t.Fatalf("错误码不符：%v", err)
 	}
-	if err := c.DeleteBucket(ctx, "abc"); err != nil {
-		t.Fatalf("DeleteBucket 失败：%v", err)
-	}
+	testx.RequireNoError(t, c.DeleteBucket(ctx, "abc"))
 }
 
 func TestClientErrors(t *testing.T) {
@@ -439,9 +433,7 @@ func TestClientMultipartLifecycle(t *testing.T) {
 	// 中止
 	up2, _ := c.InitiateMultipartUpload(ctx, "abc", "gone", filex.PutOptions{})
 	_, _ = c.UploadPart(ctx, "abc", "gone", up2.UploadID, 1, strings.NewReader("x"))
-	if err := c.AbortMultipartUpload(ctx, "abc", "gone", up2.UploadID); err != nil {
-		t.Fatalf("Abort 失败：%v", err)
-	}
+	testx.RequireNoError(t, c.AbortMultipartUpload(ctx, "abc", "gone", up2.UploadID))
 	if _, err := c.ListParts(ctx, "abc", "gone", up2.UploadID); err == nil {
 		t.Fatal("中止后部件应不可见")
 	}
@@ -486,9 +478,7 @@ func TestClientVersioningAndCopy(t *testing.T) {
 		t.Fatalf("RestoreVersion 失败：%v", err)
 	}
 	versions, _ = c.ListVersions(ctx, "abc", "k")
-	if err := c.DeleteVersion(ctx, "abc", "k", versions[1].VersionID); err != nil {
-		t.Fatalf("DeleteVersion 失败：%v", err)
-	}
+	testx.RequireNoError(t, c.DeleteVersion(ctx, "abc", "k", versions[1].VersionID))
 	if _, err := c.Copy(ctx, "abc", "k", "dst", "c.txt"); err != nil {
 		t.Fatalf("Copy 失败：%v", err)
 	}

@@ -2,6 +2,7 @@ package filex
 
 import (
 	"context"
+	"github.com/lcylpzls/testx"
 	"strings"
 	"sync"
 	"testing"
@@ -16,13 +17,9 @@ func TestEventHook(t *testing.T) {
 		t.Fatalf("Put 失败：%v", err)
 	}
 	obj, err := store.Get(context.Background(), "bucket", "k", GetOptions{})
-	if err != nil {
-		t.Fatalf("Get 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
 	_ = obj.Close()
-	if err := store.Delete(context.Background(), "bucket", "k"); err != nil {
-		t.Fatalf("Delete 失败：%v", err)
-	}
+	testx.RequireNoError(t, store.Delete(context.Background(), "bucket", "k"))
 	if _, err := store.Get(context.Background(), "bucket", "missing", GetOptions{}); err == nil {
 		t.Fatal("Get 不存在的对象应失败")
 	}
@@ -94,9 +91,7 @@ func TestNoEventHook(t *testing.T) {
 func newEventStore(t *testing.T, hook EventHook) *Store {
 	t.Helper()
 	store, err := New(Config{DataDir: t.TempDir(), EventHook: hook})
-	if err != nil {
-		t.Fatalf("New 失败：%v", err)
-	}
+	testx.RequireNoError(t, err)
 	if _, err := store.CreateBucket(context.Background(), "bucket"); err != nil {
 		t.Fatalf("CreateBucket 失败：%v", err)
 	}

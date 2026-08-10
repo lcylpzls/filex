@@ -399,9 +399,7 @@ func TestDelete(t *testing.T) {
 	ctx := context.Background()
 	mustPut(t, s, "abc", "k", "v", PutOptions{})
 
-	if err := s.Delete(ctx, "abc", "k"); err != nil {
-		t.Fatalf("删除失败：%v", err)
-	}
+	testx.RequireNoError(t, s.Delete(ctx, "abc", "k"))
 	if err := s.Delete(ctx, "abc", "k"); err == nil {
 		t.Fatal("重复删除应报错")
 	} else {
@@ -432,9 +430,7 @@ func TestDelete(t *testing.T) {
 	// 数据文件已缺失时删除成功
 	mustPut(t, s, "abc", "orphan", "v", PutOptions{})
 	_ = os.Remove(s.objectDataPath("abc", "orphan"))
-	if err := s.Delete(ctx, "abc", "orphan"); err != nil {
-		t.Fatalf("数据缺失删除应成功：%v", err)
-	}
+	testx.RequireNoError(t, s.Delete(ctx, "abc", "orphan"))
 
 	// 数据删除失败仅告警，返回成功
 	mustPut(t, s, "abc", "warn", "v", PutOptions{})
@@ -445,9 +441,7 @@ func TestDelete(t *testing.T) {
 		}
 		return os.Remove(name)
 	}
-	if err := s.Delete(ctx, "abc", "warn"); err != nil {
-		t.Fatalf("数据删除失败应仍返回成功：%v", err)
-	}
+	testx.RequireNoError(t, s.Delete(ctx, "abc", "warn"))
 	s.fs = defaultFSOps
 
 	// 元数据删除失败
@@ -585,9 +579,7 @@ func TestNopMetrics(t *testing.T) {
 	testx.RequireNoError(t, err)
 
 	_ = obj.Close()
-	if err := s.Delete(context.Background(), "abc", "k"); err != nil {
-		t.Fatalf("删除失败：%v", err)
-	}
+	testx.RequireNoError(t, s.Delete(context.Background(), "abc", "k"))
 	if _, err := s.Put(context.Background(), "missing", "k", strings.NewReader("v"), PutOptions{}); err == nil {
 		t.Fatal("不存在的桶应报错（触发 IncError 分支）")
 	}

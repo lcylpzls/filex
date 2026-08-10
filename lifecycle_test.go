@@ -174,9 +174,7 @@ func TestSweepOrphans(t *testing.T) {
 
 func TestHealth(t *testing.T) {
 	s, _ := newStore(t)
-	if err := s.Health(context.Background()); err != nil {
-		t.Fatalf("健康检查失败：%v", err)
-	}
+	testx.RequireNoError(t, s.Health(context.Background()))
 	injected := errors.New("注入错误")
 	s.fs.ReadDir = func(string) ([]os.DirEntry, error) { return nil, injected }
 	if err := s.Health(context.Background()); !errors.Is(err, injected) {
@@ -262,17 +260,13 @@ func TestDeleteBucketActiveUploads(t *testing.T) {
 		mustErrCode(t, err, CodeBucketNotEmpty)
 	}
 	_ = s.AbortMultipartUpload(ctx, "abc", "k", up.UploadID)
-	if err := s.DeleteBucket(ctx, "abc"); err != nil {
-		t.Fatalf("中止后删除桶失败：%v", err)
-	}
+	testx.RequireNoError(t, s.DeleteBucket(ctx, "abc"))
 
 	// 过期会话不阻止删除桶
 	mustBucket(t, s, "abc2")
 	up2, _ := s.InitiateMultipartUpload(ctx, "abc2", "k", PutOptions{})
 	ageUploadSession(t, s, "abc2", up2.UploadID, 48)
-	if err := s.DeleteBucket(ctx, "abc2"); err != nil {
-		t.Fatalf("过期会话不应阻止删除桶：%v", err)
-	}
+	testx.RequireNoError(t, s.DeleteBucket(ctx, "abc2"))
 
 	// .uploads 目录读取失败与非目录项：不阻止删除
 	mustBucket(t, s, "abc3")
@@ -286,9 +280,7 @@ func TestDeleteBucketActiveUploads(t *testing.T) {
 		}
 		return os.ReadDir(path)
 	}
-	if err := s.DeleteBucket(ctx, "abc3"); err != nil {
-		t.Fatalf("上传目录读取失败不应阻止删除：%v", err)
-	}
+	testx.RequireNoError(t, s.DeleteBucket(ctx, "abc3"))
 	s.fs = defaultFSOps
 
 	// .uploads 中只有非目录项：不阻止删除
@@ -296,9 +288,7 @@ func TestDeleteBucketActiveUploads(t *testing.T) {
 	uploadsDir5 := filepath.Join(s.objectsDir("abc5"), ".uploads")
 	_ = os.MkdirAll(uploadsDir5, 0o755)
 	_ = os.WriteFile(filepath.Join(uploadsDir5, "junk"), []byte("x"), 0o644)
-	if err := s.DeleteBucket(ctx, "abc5"); err != nil {
-		t.Fatalf("非目录项不应阻止删除：%v", err)
-	}
+	testx.RequireNoError(t, s.DeleteBucket(ctx, "abc5"))
 
 	// 无 .uploads 目录：孤儿巡检正常
 	mustBucket(t, s, "abc4")

@@ -205,9 +205,7 @@ func TestRemoveVersionFilesErrors(t *testing.T) {
 	// ReadDir 失败时删除仍成功（目录回收为尽力而为）
 	info2, _ := s.Put(ctx, "abc", "k2", strings.NewReader("v"), PutOptions{})
 	s.fs.ReadDir = func(string) ([]os.DirEntry, error) { return nil, injected }
-	if err := s.DeleteVersion(ctx, "abc", "k2", info2.VersionID); err != nil {
-		t.Fatalf("ReadDir 失败不应影响删除：%v", err)
-	}
+	testx.RequireNoError(t, s.DeleteVersion(ctx, "abc", "k2", info2.VersionID))
 }
 
 func TestMoveDeleteError(t *testing.T) {
@@ -462,9 +460,7 @@ func TestSortMetasTieBreak(t *testing.T) {
 
 func TestCheckQuotaMissingBucket(t *testing.T) {
 	s, _ := newStore(t)
-	if err := s.checkQuota("missing"); err != nil {
-		t.Fatalf("缺失桶配额检查应返回 nil：%v", err)
-	}
+	testx.RequireNoError(t, s.checkQuota("missing"))
 }
 
 func TestCollectMetasStrayFiles(t *testing.T) {

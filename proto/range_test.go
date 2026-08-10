@@ -3,14 +3,14 @@ package proto
 import (
 	"testing"
 
-	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/filex"
+	"github.com/lcylpzls/testx"
 )
 
 func TestParseRange(t *testing.T) {
-	if _, ok, err := ParseRange("", 10); ok || err != nil {
-		t.Fatalf("空头应返回无范围：ok=%v err=%v", ok, err)
-	}
+	_, ok, err := ParseRange("", 10)
+	testx.RequireFalse(t, ok)
+	testx.RequireNoError(t, err)
 
 	cases := []struct {
 		header string
@@ -26,10 +26,9 @@ func TestParseRange(t *testing.T) {
 	}
 	for _, c := range cases {
 		got, ok, err := ParseRange(c.header, c.size)
-		if err != nil || !ok || got != c.want {
-			t.Errorf("ParseRange(%q, %d) = %+v, %v, %v；期望 %+v",
-				c.header, c.size, got, ok, err, c.want)
-		}
+		testx.RequireNoError(t, err)
+		testx.RequireTrue(t, ok)
+		testx.RequireEqual(t, got, c.want)
 	}
 
 	invalid := []struct {
@@ -51,12 +50,7 @@ func TestParseRange(t *testing.T) {
 	}
 	for _, c := range invalid {
 		_, ok, err := ParseRange(c.header, c.size)
-		if err == nil || !ok {
-			t.Errorf("ParseRange(%q, %d) 应报错：ok=%v err=%v", c.header, c.size, ok, err)
-			continue
-		}
-		if !errx.Is(err, filex.CodeInvalidRange) {
-			t.Errorf("错误码应为 filex_invalid_range：%v", err)
-		}
+		testx.RequireTrue(t, ok)
+		testx.RequireErrCode(t, err, filex.CodeInvalidRange)
 	}
 }

@@ -1,6 +1,7 @@
 package client
 
 import (
+	"github.com/lcylpzls/testx"
 	"io"
 	"net/http"
 	"os"
@@ -35,9 +36,7 @@ var errSeek = io.ErrUnexpectedEOF
 func TestSetContentLength(t *testing.T) {
 	hdr := http.Header{}
 	setContentLength(hdr, strings.NewReader("hello"))
-	if hdr.Get("Content-Length") != "5" {
-		t.Fatalf("Len 分支 Content-Length 不符：%q", hdr.Get("Content-Length"))
-	}
+	testx.RequireEqual(t, hdr.Get("Content-Length"), "5")
 
 	hdr = http.Header{}
 	file := filepath.Join(t.TempDir(), "f")
@@ -45,24 +44,16 @@ func TestSetContentLength(t *testing.T) {
 	f, _ := os.Open(file)
 	setContentLength(hdr, f)
 	_ = f.Close()
-	if hdr.Get("Content-Length") != "3" {
-		t.Fatalf("Seeker 分支 Content-Length 不符：%q", hdr.Get("Content-Length"))
-	}
+	testx.RequireEqual(t, hdr.Get("Content-Length"), "3")
 
 	hdr = http.Header{}
 	setContentLength(hdr, &seekerErr{})
-	if hdr.Get("Content-Length") != "" {
-		t.Fatalf("Seek 失败应跳过：%q", hdr.Get("Content-Length"))
-	}
+	testx.RequireEqual(t, hdr.Get("Content-Length"), "")
 	hdr = http.Header{}
 	setContentLength(hdr, &seekerErr{failFirst: true})
-	if hdr.Get("Content-Length") != "" {
-		t.Fatalf("首次 Seek 失败应跳过：%q", hdr.Get("Content-Length"))
-	}
+	testx.RequireEqual(t, hdr.Get("Content-Length"), "")
 
 	hdr = http.Header{}
 	setContentLength(hdr, plainReader{})
-	if hdr.Get("Content-Length") != "" {
-		t.Fatalf("不可探测应跳过：%q", hdr.Get("Content-Length"))
-	}
+	testx.RequireEqual(t, hdr.Get("Content-Length"), "")
 }
