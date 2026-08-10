@@ -1,9 +1,11 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/lcylpzls/testx"
+)
 
 func TestRun(t *testing.T) {
-	if err := run(t.TempDir()); err != nil {
-		t.Fatalf("基础示例运行失败：%v", err)
-	}
+	testx.RequireNoError(t, run(t.TempDir()))
 }
