@@ -10,7 +10,7 @@ import (
 	"github.com/lcylpzls/filex"
 	"github.com/lcylpzls/filex/server"
 	"github.com/lcylpzls/logx"
-	"github.com/lcylpzls/webx/v2"
+	"github.com/lcylpzls/webx"
 )
 
 type serverConfig struct {
