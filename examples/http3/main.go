@@ -3,51 +3,55 @@ package main
 
 import (
 	"context"
-	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/lcylpzls/clix"
 	"github.com/lcylpzls/filex"
 	"github.com/lcylpzls/logx"
 )
 
 func main() {
-	var (
-		listen = flag.String("listen", "127.0.0.1:9443", "HTTP/3 监听地址")
-		cert   = flag.String("cert", "", "TLS 证书文件（PEM）")
-		key    = flag.String("key", "", "TLS 私钥文件（PEM）")
-		token  = flag.String("token", "", "Bearer 令牌（可选）")
-		data   = flag.String("data", "data", "数据目录")
+	app, err := clix.New("filex-http3", "0.22.0",
+		clix.WithDescription("filex HTTP/3 端到端示例"),
+		clix.WithIO(os.Stdout, os.Stderr),
+		clix.WithGlobalFlags(
+			clix.StringFlag("listen", "HTTP/3 监听地址").Default("127.0.0.1:9443"),
+			clix.StringFlag("cert", "TLS 证书文件（PEM）").Required(),
+			clix.StringFlag("key", "TLS 私钥文件（PEM）").Required(),
+			clix.StringFlag("token", "Bearer 令牌（可选）"),
+			clix.StringFlag("data", "数据目录").Default("data"),
+		),
+		clix.WithRootAction(runHTTP3),
 	)
-	flag.Parse()
-	if *cert == "" || *key == "" {
-		fmt.Fprintln(os.Stderr, "用法：http3 -cert 证书 -key 私钥 [-listen 地址] [-token 令牌] [-data 目录]")
-		os.Exit(2)
-	}
-	store, err := filex.New(filex.Config{DataDir: *data})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "初始化存储失败：%v\n", err)
-		os.Exit(1)
+		panic(err)
+	}
+	os.Exit(app.Execute(context.Background(), os.Args[1:]))
+}
+
+// runHTTP3 启动 filex HTTP/3 服务（clix 根 Action）。
+func runHTTP3(ctx context.Context, c *clix.Context) error {
+	store, err := filex.New(filex.Config{DataDir: c.GlobalString("data")})
+	if err != nil {
+		return err
 	}
 	defer store.Close()
 	logger, err := logx.NewBuilder().EnableWriter(os.Stdout, logx.InfoLevel).Build()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "初始化日志失败：%v\n", err)
-		os.Exit(1)
+		return err
 	}
 	s, _, err := startAndWait(context.Background(), serverConfig{
 		Store: store,
-		Token: *token,
-	}, *cert, *key, *listen, logger)
+		Token: c.GlobalString("token"),
+	}, c.GlobalString("cert"), c.GlobalString("key"), c.GlobalString("listen"), logger)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "启动服务失败：%v\n", err)
-		os.Exit(1)
+		return err
 	}
-	logger.Info("filex HTTP/3 服务已启动", logx.Fields(logx.String("地址", *listen)))
+	logger.Info("filex HTTP/3 服务已启动", logx.Fields(logx.String("地址", c.GlobalString("listen"))))
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	<-ch
-	_ = s.Stop(context.Background())
+	return s.Stop(ctx)
 }

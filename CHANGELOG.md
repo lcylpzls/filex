@@ -1,5 +1,17 @@
 # 更新日志
 
+## [v0.23.0] - 2026-08-10
+
+### 变更
+
+- 示例命令行接入 clix：protocol / http3 示例由 stdlib flag 迁移到
+  `clix v1.2.0`（全局 flag、必填校验、统一帮助与退出码）；
+- 示例模块新增 clix 依赖，confx/logx/validx 同步升级。
+
+### 质量
+
+- 示例端到端测试（协议 / HTTP/3）全绿；race / vet / staticcheck 通过。
+
 ## [v0.22.0] - 2026-08-10
 
 ### 变更

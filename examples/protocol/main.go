@@ -4,10 +4,8 @@ package main
 import (
 	"context"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -15,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/lcylpzls/clix"
 	"github.com/lcylpzls/filex"
 	"github.com/lcylpzls/filex/client"
 	"github.com/lcylpzls/filex/server"
@@ -85,25 +84,38 @@ func runWithOptions(addr, dataDir, token string, encKey []byte) error {
 }
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:8099", "监听地址")
-	dataDir := flag.String("data", "data", "数据目录")
-	token := flag.String("token", "", "Bearer 令牌（可选）")
-	encKeyHex := flag.String("enc-key", "", "32 字节主密钥（64 位十六进制，可选）")
-	flag.Parse()
+	app, err := clix.New("filex-protocol", "0.22.0",
+		clix.WithDescription("filex 协议端到端示例"),
+		clix.WithIO(os.Stdout, os.Stderr),
+		clix.WithGlobalFlags(
+			clix.StringFlag("addr", "监听地址").Default("127.0.0.1:8099"),
+			clix.StringFlag("data", "数据目录").Default("data"),
+			clix.StringFlag("token", "Bearer 令牌（可选）"),
+			clix.StringFlag("enc-key", "32 字节主密钥（64 位十六进制，可选）"),
+		),
+		clix.WithRootAction(runProtocol),
+	)
+	if err != nil {
+		panic(err)
+	}
+	os.Exit(app.Execute(context.Background(), os.Args[1:]))
+}
+
+// runProtocol 执行协议端到端流程（clix 根 Action）。
+func runProtocol(_ context.Context, c *clix.Context) error {
 	var encKey []byte
-	if *encKeyHex != "" {
-		key, err := hex.DecodeString(*encKeyHex)
+	if v := c.GlobalString("enc-key"); v != "" {
+		key, err := hex.DecodeString(v)
 		if err != nil {
-			log.Println("enc-key 必须是十六进制")
-			os.Exit(1)
+			return err
 		}
 		encKey = key
 	}
-	if err := runWithOptions(*addr, *dataDir, *token, encKey); err != nil {
-		log.Println(err)
-		os.Exit(1)
+	if err := runWithOptions(c.GlobalString("addr"), c.GlobalString("data"), c.GlobalString("token"), encKey); err != nil {
+		return err
 	}
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	<-ch
+	return nil
 }
