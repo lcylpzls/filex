@@ -139,9 +139,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.cfg.Metrics != nil {
 			if sw.status >= 400 {
-				h.cfg.Metrics.IncError("", strconv.Itoa(sw.status))
+				h.cfg.Metrics.IncCounter("filex.errors", []string{"bucket", "", "code", strconv.Itoa(sw.status)})
 			} else {
-				h.cfg.Metrics.Add("", "http_request", 1)
+				h.cfg.Metrics.AddCounter("filex.bytes", 1, []string{"bucket", "", "operation", "http_request"})
 			}
 		}
 	}()

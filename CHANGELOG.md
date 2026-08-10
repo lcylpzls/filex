@@ -1,5 +1,13 @@
 # 更新日志
 
+## [v1.0.4] - 2026-08-10
+
+### 变更
+
+- Metrics 契约统一为 `metricsx.Sink`（破坏性：注入实现需满足 Sink 协议，字节/错误语义映射为计数指标）；
+- Trace 契约统一为 `tracex.TraceHook`（类型别名，调用点不变）；
+- 依赖升级：tracex v1.0.4、metricsx v1.5.4、errx v1.5.7、logx v1.3.4、cryptox v1.0.4、idgenx v1.4.4、validx v1.2.5、testx v1.4.5。
+
 ## [v1.0.3] - 2026-08-10
 
 ### 变更

@@ -42,7 +42,7 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
 	if _, err := s.ensureBucket(bucket); err != nil {
-		s.metrics.IncError(bucket, errxCode(err))
+		incError(s.metrics, bucket, errxCode(err))
 		return ObjectInfo{}, err
 	}
 	unlock := s.locks.lock(bucket, key)
@@ -50,7 +50,7 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 
 	versioning, err := s.bucketVersioning(bucket)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
 	}
 	versionID := ""
@@ -67,12 +67,12 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 
 	dir := filepath.Dir(dataPath)
 	if err := s.fs.MkdirAll(dir, 0o755); err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "创建对象目录失败")
 	}
 	f, err := s.fs.CreateTemp(dir, ".tmp-*.part")
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "创建临时文件失败")
 	}
 	tmp := f.Name()
@@ -97,7 +97,7 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	}
 	size, err := s.fs.WriteToFile(dst, limited)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, storageErr(err, "写入对象内容失败")
 	}
 	if encryptFinish != nil {
@@ -109,21 +109,21 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	}
 	if !s.cfg.DisableSync {
 		if err := s.fs.SyncFile(f); err != nil {
-			s.metrics.IncError(bucket, string(CodeStorageFailed))
+			incError(s.metrics, bucket, string(CodeStorageFailed))
 			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "同步对象内容失败")
 		}
 	}
 	if err := s.fs.CloseFile(f); err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "关闭临时文件失败")
 	}
 	computed := hex.EncodeToString(hasher.Sum(nil))
 	if opts.ExpectedSHA256 != "" && !strings.EqualFold(computed, opts.ExpectedSHA256) {
-		s.metrics.IncError(bucket, string(CodeChecksumMismatch))
+		incError(s.metrics, bucket, string(CodeChecksumMismatch))
 		return ObjectInfo{}, newCode(CodeChecksumMismatch, "内容 SHA256 与期望值不符")
 	}
 	if err := s.fs.Rename(tmp, dataPath); err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "提交对象内容失败")
 	}
 	committed = true
@@ -146,7 +146,7 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		meta.ContentType = "application/octet-stream"
 	}
 	if err := s.writeJSONAtomic(metaPath, meta); err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入对象元数据失败")
 	}
 	if err := s.checkQuota(bucket); err != nil {
@@ -156,11 +156,11 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		} else {
 			_ = s.removeVersionFiles(bucket, key, versionID)
 		}
-		s.metrics.IncError(bucket, string(CodeQuotaExceeded))
+		incError(s.metrics, bucket, string(CodeQuotaExceeded))
 		return ObjectInfo{}, err
 	}
 	s.syncDir(dir)
-	s.metrics.Add(bucket, "put", size)
+	addBytes(s.metrics, bucket, "put", size)
 	s.logInfo("写入对象",
 		logx.String("bucket", bucket),
 		logx.String("key", key),
@@ -189,7 +189,7 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (o
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
 	if _, err := s.ensureBucket(bucket); err != nil {
-		s.metrics.IncError(bucket, errxCode(err))
+		incError(s.metrics, bucket, errxCode(err))
 		return nil, err
 	}
 	unlock := s.locks.rlock(bucket, key)
@@ -197,7 +197,7 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (o
 
 	versioning, err := s.bucketVersioning(bucket)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return nil, wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
 	}
 	var meta *objectMeta
@@ -205,22 +205,22 @@ func (s *Store) Get(ctx context.Context, bucket, key string, opts GetOptions) (o
 	if versioning {
 		meta, err = s.readCurrentMeta(bucket, key, true)
 		if os.IsNotExist(err) {
-			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			incError(s.metrics, bucket, string(CodeObjectNotFound))
 			return nil, newCode(CodeObjectNotFound, "对象不存在")
 		}
 		if err != nil {
-			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			incError(s.metrics, bucket, string(CodeMetadataCorrupt))
 			return nil, wrapCode(err, CodeMetadataCorrupt, "读取版本元数据失败")
 		}
 		dataPath, _ = s.objectPaths(bucket, key, meta.VersionID)
 	} else {
 		meta, err = s.readCurrentMeta(bucket, key, false)
 		if os.IsNotExist(err) {
-			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			incError(s.metrics, bucket, string(CodeObjectNotFound))
 			return nil, newCode(CodeObjectNotFound, "对象不存在")
 		}
 		if err != nil {
-			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			incError(s.metrics, bucket, string(CodeMetadataCorrupt))
 			return nil, wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
 		}
 		dataPath = s.objectDataPath(bucket, key)
@@ -237,20 +237,20 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 	}
 	info, err := s.fs.Stat(dataPath)
 	if os.IsNotExist(err) {
-		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+		incError(s.metrics, bucket, string(CodeMetadataCorrupt))
 		return nil, newCode(CodeMetadataCorrupt, "对象数据文件缺失")
 	}
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return nil, wrapCode(err, CodeStorageFailed, "检查对象数据失败")
 	}
 	if meta.Encryption == nil && info.Size() != meta.Size {
-		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+		incError(s.metrics, bucket, string(CodeMetadataCorrupt))
 		return nil, newCodef(CodeMetadataCorrupt, "对象大小不一致：期望 %d，实际 %d", meta.Size, info.Size())
 	}
 	f, err := s.fs.OpenFile(dataPath, os.O_RDONLY, 0)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return nil, wrapCode(err, CodeStorageFailed, "打开对象数据失败")
 	}
 	var rc io.ReadCloser
@@ -286,7 +286,7 @@ func (s *Store) openObject(bucket, key string, meta *objectMeta, dataPath string
 	} else {
 		rc = f
 	}
-	s.metrics.Add(bucket, "get", meta.Size)
+	addBytes(s.metrics, bucket, "get", meta.Size)
 	s.logInfo("读取对象",
 		logx.String("bucket", bucket),
 		logx.String("key", key),
@@ -321,35 +321,35 @@ func (s *Store) Head(ctx context.Context, bucket, key string) (info ObjectInfo, 
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
 	if _, err := s.ensureBucket(bucket); err != nil {
-		s.metrics.IncError(bucket, errxCode(err))
+		incError(s.metrics, bucket, errxCode(err))
 		return ObjectInfo{}, err
 	}
 	unlock := s.locks.rlock(bucket, key)
 	defer unlock()
 	versioning, err := s.bucketVersioning(bucket)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
 	}
 	var meta *objectMeta
 	if versioning {
 		meta, err = s.readCurrentMeta(bucket, key, true)
 		if os.IsNotExist(err) {
-			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			incError(s.metrics, bucket, string(CodeObjectNotFound))
 			return ObjectInfo{}, newCode(CodeObjectNotFound, "对象不存在")
 		}
 		if err != nil {
-			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			incError(s.metrics, bucket, string(CodeMetadataCorrupt))
 			return ObjectInfo{}, wrapCode(err, CodeMetadataCorrupt, "读取版本元数据失败")
 		}
 	} else {
 		meta, err = s.readCurrentMeta(bucket, key, false)
 		if os.IsNotExist(err) {
-			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			incError(s.metrics, bucket, string(CodeObjectNotFound))
 			return ObjectInfo{}, newCode(CodeObjectNotFound, "对象不存在")
 		}
 		if err != nil {
-			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			incError(s.metrics, bucket, string(CodeMetadataCorrupt))
 			return ObjectInfo{}, wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
 		}
 	}
@@ -376,7 +376,7 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) (err error) {
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
 	if _, err := s.ensureBucket(bucket); err != nil {
-		s.metrics.IncError(bucket, errxCode(err))
+		incError(s.metrics, bucket, errxCode(err))
 		return err
 	}
 	unlock := s.locks.lock(bucket, key)
@@ -384,17 +384,17 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) (err error) {
 
 	versioning, err := s.bucketVersioning(bucket)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
 	}
 	if versioning {
 		latest, err := s.readCurrentMeta(bucket, key, true)
 		if os.IsNotExist(err) {
-			s.metrics.IncError(bucket, string(CodeObjectNotFound))
+			incError(s.metrics, bucket, string(CodeObjectNotFound))
 			return newCode(CodeObjectNotFound, "对象不存在")
 		}
 		if err != nil {
-			s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+			incError(s.metrics, bucket, string(CodeMetadataCorrupt))
 			return wrapCode(err, CodeMetadataCorrupt, "读取版本元数据失败")
 		}
 		now := time.Now().UTC()
@@ -409,10 +409,10 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) (err error) {
 			UpdatedAt:   now,
 		}
 		if err := s.writeJSONAtomic(s.versionMetaPath(bucket, key, marker.VersionID), marker); err != nil {
-			s.metrics.IncError(bucket, string(CodeStorageFailed))
+			incError(s.metrics, bucket, string(CodeStorageFailed))
 			return wrapCode(err, CodeStorageFailed, "写入删除标记失败")
 		}
-		s.metrics.Add(bucket, "delete", latest.Size)
+		addBytes(s.metrics, bucket, "delete", latest.Size)
 		s.logInfo("软删除对象",
 			logx.String("bucket", bucket),
 			logx.String("key", key),
@@ -424,15 +424,15 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) (err error) {
 	metaPath := s.objectMetaPath(bucket, key)
 	meta, err := readObjectMeta(s.fs, metaPath)
 	if os.IsNotExist(err) {
-		s.metrics.IncError(bucket, string(CodeObjectNotFound))
+		incError(s.metrics, bucket, string(CodeObjectNotFound))
 		return newCode(CodeObjectNotFound, "对象不存在")
 	}
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeMetadataCorrupt))
+		incError(s.metrics, bucket, string(CodeMetadataCorrupt))
 		return wrapCode(err, CodeMetadataCorrupt, "读取对象元数据失败")
 	}
 	if err := s.fs.Remove(metaPath); err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return wrapCode(err, CodeStorageFailed, "删除对象元数据失败")
 	}
 	if err := s.fs.Remove(s.objectDataPath(bucket, key)); err != nil && !os.IsNotExist(err) {
@@ -441,7 +441,7 @@ func (s *Store) Delete(ctx context.Context, bucket, key string) (err error) {
 			logx.String("key", key),
 		)
 	}
-	s.metrics.Add(bucket, "delete", meta.Size)
+	addBytes(s.metrics, bucket, "delete", meta.Size)
 	s.logInfo("删除对象",
 		logx.String("bucket", bucket),
 		logx.String("key", key),
@@ -472,13 +472,13 @@ func (s *Store) List(ctx context.Context, bucket string, opts ListOptions) (resu
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
 	if _, err := s.ensureBucket(bucket); err != nil {
-		s.metrics.IncError(bucket, errxCode(err))
+		incError(s.metrics, bucket, errxCode(err))
 		return ListResult{}, err
 	}
 
 	metas, err := s.collectCurrentMetas(bucket)
 	if err != nil {
-		s.metrics.IncError(bucket, string(CodeStorageFailed))
+		incError(s.metrics, bucket, string(CodeStorageFailed))
 		return ListResult{}, wrapCode(err, CodeStorageFailed, "扫描对象目录失败")
 	}
 	sort.Slice(metas, func(i, j int) bool { return metas[i].Key < metas[j].Key })

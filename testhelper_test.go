@@ -44,16 +44,32 @@ func newFakeMetrics() *fakeMetrics {
 	return &fakeMetrics{adds: map[string]int64{}, errs: map[string]int{}}
 }
 
-func (f *fakeMetrics) Add(bucket, op string, bytes int64) {
+func (f *fakeMetrics) IncCounter(name string, labels []string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.adds[bucket+"/"+op] += bytes
+	if name != "filex.errors" || len(labels) < 4 {
+		return
+	}
+	f.errs[labels[1]+"/"+labels[3]]++
 }
 
-func (f *fakeMetrics) IncError(bucket, code string) {
+func (f *fakeMetrics) AddCounter(name string, delta float64, labels []string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.errs[bucket+"/"+code]++
+	if name != "filex.bytes" || len(labels) < 4 {
+		return
+	}
+	f.adds[labels[1]+"/"+labels[3]] += int64(delta)
+}
+
+func (f *fakeMetrics) ObserveDuration(string, float64, []string) {}
+
+func (f *fakeMetrics) AddGauge(string, float64, []string) {}
+
+func (f *fakeMetrics) SetGauge(string, float64, []string) {}
+
+func (f *fakeMetrics) RegisterMetric(string, string, []string) error {
+	return nil
 }
 
 // mustErrCode 断言错误包含指定 errx 错误码。

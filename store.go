@@ -185,16 +185,16 @@ func (s *Store) CreateBucket(ctx context.Context, name string) (BucketInfo, erro
 
 	objectsDir := filepath.Join(s.bucketDir(name), "objects")
 	if err := s.fs.MkdirAll(objectsDir, 0o755); err != nil {
-		s.metrics.IncError(name, string(CodeStorageFailed))
+		incError(s.metrics, name, string(CodeStorageFailed))
 		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "创建桶目录失败")
 	}
 	now := time.Now().UTC()
 	meta := bucketMeta{Name: name, CreatedAt: now, UpdatedAt: now}
 	if err := s.writeJSONAtomic(metaPath, meta); err != nil {
-		s.metrics.IncError(name, string(CodeStorageFailed))
+		incError(s.metrics, name, string(CodeStorageFailed))
 		return BucketInfo{}, wrapCode(err, CodeStorageFailed, "写入桶元数据失败")
 	}
-	s.metrics.Add(name, "create_bucket", 0)
+	addBytes(s.metrics, name, "create_bucket", 0)
 	s.logInfo("创建桶", logx.String("bucket", name))
 	return BucketInfo{
 		Name:       name,
@@ -280,13 +280,13 @@ func (s *Store) DeleteBucket(ctx context.Context, name string) error {
 	if _, err := readBucketMeta(s.fs, s.bucketMetaPath(name)); os.IsNotExist(err) {
 		return newCode(CodeBucketNotFound, "桶不存在")
 	} else if err != nil {
-		s.metrics.IncError(name, string(CodeMetadataCorrupt))
+		incError(s.metrics, name, string(CodeMetadataCorrupt))
 		return wrapCode(err, CodeMetadataCorrupt, "读取桶元数据失败")
 	}
 
 	metas, err := s.collectCurrentMetas(name)
 	if err != nil {
-		s.metrics.IncError(name, string(CodeStorageFailed))
+		incError(s.metrics, name, string(CodeStorageFailed))
 		return wrapCode(err, CodeStorageFailed, "扫描桶内容失败")
 	}
 	if len(metas) > 0 {
@@ -296,10 +296,10 @@ func (s *Store) DeleteBucket(ctx context.Context, name string) error {
 		return newCode(CodeBucketNotEmpty, "桶存在活动分片上传")
 	}
 	if err := s.fs.RemoveAll(s.bucketDir(name)); err != nil {
-		s.metrics.IncError(name, string(CodeStorageFailed))
+		incError(s.metrics, name, string(CodeStorageFailed))
 		return wrapCode(err, CodeStorageFailed, "删除桶目录失败")
 	}
-	s.metrics.Add(name, "delete_bucket", 0)
+	addBytes(s.metrics, name, "delete_bucket", 0)
 	s.logInfo("删除桶", logx.String("bucket", name))
 	return nil
 }
@@ -316,7 +316,7 @@ func (s *Store) HeadBucket(ctx context.Context, name string) (BucketInfo, error)
 	defer s.bucketMu.RUnlock()
 	meta, err := s.ensureBucket(name)
 	if err != nil {
-		s.metrics.IncError(name, errxCode(err))
+		incError(s.metrics, name, errxCode(err))
 		return BucketInfo{}, err
 	}
 	return bucketInfoFromMeta(*meta), nil

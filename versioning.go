@@ -381,7 +381,7 @@ func (s *Store) DeleteVersion(ctx context.Context, bucket, key, versionID string
 	if err := s.removeVersionFiles(bucket, key, versionID); err != nil {
 		return wrapCode(err, CodeStorageFailed, "删除版本失败")
 	}
-	s.metrics.Add(bucket, "delete_version", 0)
+	addBytes(s.metrics, bucket, "delete_version", 0)
 	s.logInfo("永久删除版本",
 		logx.String("bucket", bucket),
 		logx.String("key", key),

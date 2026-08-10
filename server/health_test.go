@@ -21,12 +21,28 @@ func newServerMetrics() *serverMetrics {
 	return &serverMetrics{adds: map[string]int64{}, errs: map[string]int{}}
 }
 
-func (m *serverMetrics) Add(bucket, op string, bytes int64) {
-	m.adds[bucket+"/"+op] += bytes
+func (m *serverMetrics) IncCounter(name string, labels []string) {
+	if name != "filex.errors" || len(labels) < 4 {
+		return
+	}
+	m.errs[labels[1]+"/"+labels[3]]++
 }
 
-func (m *serverMetrics) IncError(bucket, code string) {
-	m.errs[bucket+"/"+code]++
+func (m *serverMetrics) AddCounter(name string, delta float64, labels []string) {
+	if name != "filex.bytes" || len(labels) < 4 {
+		return
+	}
+	m.adds[labels[1]+"/"+labels[3]] += int64(delta)
+}
+
+func (m *serverMetrics) ObserveDuration(string, float64, []string) {}
+
+func (m *serverMetrics) AddGauge(string, float64, []string) {}
+
+func (m *serverMetrics) SetGauge(string, float64, []string) {}
+
+func (m *serverMetrics) RegisterMetric(string, string, []string) error {
+	return nil
 }
 
 func TestServerHealth(t *testing.T) {

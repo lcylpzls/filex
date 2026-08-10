@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lcylpzls/logx"
+	"github.com/lcylpzls/metricsx"
 )
 
 // 默认与上限常量。
@@ -52,12 +53,8 @@ type Logger interface {
 }
 
 // Metrics 是 filex 的指标打点接口，可对接 metricsx。
-type Metrics interface {
-	// Add 累加一次操作的字节量；实现必须并发安全。
-	Add(bucket, operation string, bytes int64)
-	// IncError 记录一次错误；实现必须并发安全。
-	IncError(bucket, code string)
-}
+// Metrics 是最小指标协议（家族统一契约，定义见 metricsx.Sink）。
+type Metrics = metricsx.Sink
 
 // BucketInfo 是桶元数据快照。
 type BucketInfo struct {

@@ -143,7 +143,7 @@ func (s *Store) InitiateMultipartUpload(ctx context.Context, bucket, key string,
 	if err := s.writeJSONAtomic(s.uploadMetaPath(bucket, uploadID), meta); err != nil {
 		return UploadInfo{}, wrapCode(err, CodeStorageFailed, "写入上传会话失败")
 	}
-	s.metrics.Add(bucket, "initiate_upload", 0)
+	addBytes(s.metrics, bucket, "initiate_upload", 0)
 	s.logInfo("创建分片上传会话",
 		logx.String("bucket", bucket),
 		logx.String("key", key),
@@ -236,7 +236,7 @@ func (s *Store) UploadPart(ctx context.Context, bucket, key, uploadID string, pa
 	if err := s.writeJSONAtomic(s.partMetaPath(bucket, uploadID, partNumber), pm); err != nil {
 		return PartInfo{}, wrapCode(err, CodeStorageFailed, "写入部件元数据失败")
 	}
-	s.metrics.Add(bucket, "upload_part", size)
+	addBytes(s.metrics, bucket, "upload_part", size)
 	s.logInfo("上传分片部件",
 		logx.String("bucket", bucket),
 		logx.String("key", key),
@@ -410,7 +410,7 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 		} else {
 			_ = s.removeVersionFiles(bucket, key, versionID)
 		}
-		s.metrics.IncError(bucket, string(CodeQuotaExceeded))
+		incError(s.metrics, bucket, string(CodeQuotaExceeded))
 		return ObjectInfo{}, err
 	}
 	if err := s.fs.RemoveAll(dir); err != nil {
@@ -419,7 +419,7 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 			logx.String("upload_id", uploadID),
 		)
 	}
-	s.metrics.Add(bucket, "complete_upload", total)
+	addBytes(s.metrics, bucket, "complete_upload", total)
 	s.logInfo("完成分片上传",
 		logx.String("bucket", bucket),
 		logx.String("key", key),
@@ -456,7 +456,7 @@ func (s *Store) AbortMultipartUpload(ctx context.Context, bucket, key, uploadID 
 	if err := s.fs.RemoveAll(s.uploadDir(bucket, uploadID)); err != nil {
 		return wrapCode(err, CodeStorageFailed, "清理上传会话失败")
 	}
-	s.metrics.Add(bucket, "abort_upload", 0)
+	addBytes(s.metrics, bucket, "abort_upload", 0)
 	s.logInfo("中止分片上传",
 		logx.String("bucket", bucket),
 		logx.String("key", key),
