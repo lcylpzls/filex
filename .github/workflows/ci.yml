@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        go: ['1.21.x']
+        go: ['1.26.5']
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -90,7 +90,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.21.x'
+          go-version: '1.26.5'
           check-latest: true
 
       - name: Test
@@ -109,7 +109,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.21.x'
+          go-version: '1.26.5'
           check-latest: true
 
       - name: Fuzz short run (5s per target)
@@ -131,7 +131,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.21.x'
+          go-version: '1.26.5'
           check-latest: true
 
       - name: Govulncheck
