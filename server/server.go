@@ -17,6 +17,7 @@ import (
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/filex"
 	"github.com/lcylpzls/filex/proto"
+	"github.com/lcylpzls/idgenx"
 	"github.com/lcylpzls/logx"
 )
 
@@ -77,7 +78,7 @@ type AuditEvent struct {
 }
 
 // randReader 可注入，便于测试随机数失败分支。
-var randReader = cryptox.RandomBytes
+var randReader = idgenx.RandomHex
 
 type handler struct {
 	cfg HandlerConfig
@@ -643,9 +644,9 @@ func requestID(r *http.Request) string {
 }
 
 func newRequestID() string {
-	b, err := randReader(16)
+	id, err := randReader(16)
 	if err != nil {
 		return fmt.Sprintf("rid-%d", time.Now().UnixNano())
 	}
-	return hex.EncodeToString(b)
+	return id
 }

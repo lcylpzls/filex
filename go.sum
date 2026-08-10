@@ -1,7 +1,9 @@
-github.com/lcylpzls/cryptox v0.6.6 h1:hmXbpEnhxL0mR3Lhjtnt3lSmFsXtN8E7V8LmVYHF6pI=
-github.com/lcylpzls/cryptox v0.6.6/go.mod h1:jrPfFYZayY/J1QYtUjWbER9LAMkZKvH7Z6RrtqMXIU8=
+github.com/lcylpzls/cryptox v0.6.7 h1:3RXdMYR/Y9ywpqIvORPhIYR4feRmwaWLTIKRtqmVLJk=
+github.com/lcylpzls/cryptox v0.6.7/go.mod h1:jrPfFYZayY/J1QYtUjWbER9LAMkZKvH7Z6RrtqMXIU8=
 github.com/lcylpzls/errx v1.4.0 h1:CdlMZuf2F49PCyUkRROf11i1gHcAI38GTG+kxMAGQWI=
 github.com/lcylpzls/errx v1.4.0/go.mod h1:+GcqVS4+6iuHvCELjwpsc1RKrdEtSNz00xq0lFrgdgI=
+github.com/lcylpzls/idgenx v1.3.0 h1:snoii8dJPenV0qyByeK8GYrylkWruRWiSfsG8GY6L4g=
+github.com/lcylpzls/idgenx v1.3.0/go.mod h1:BLkHkWdvuEHNEQmRjKpwzMOFR7ib552Nxtm0IIEKlwk=
 github.com/lcylpzls/logx v1.1.0 h1:BiIhkpCxTt6xehnRjDSNS3r9vHINUwV2nhQFSajAypE=
 github.com/lcylpzls/logx v1.1.0/go.mod h1:reR9kkXoO1rL8xqvvDvNAyyKsU4nqA/9WJlkeQDne4I=
 github.com/lcylpzls/testx v1.2.1 h1:Yu1JQqyYobF/l4dM3MkK6fmeR+iBZRXHYdFrogkZmLM=

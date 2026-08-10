@@ -1,5 +1,20 @@
 # 更新日志
 
+## [v0.27.0] - 2026-08-10
+
+### 变更
+
+- 应用层随机 ID 统一迁移至家族 `idgenx`：
+  - 分片上传 ID 改用 `idgenx.RandomHex(12)`（24 位 hex）；
+  - 对象版本 ID 改用 `idgenx.RandomHex(16)`（32 位 hex）；
+  - 服务端请求 ID 改用 `idgenx.RandomHex(16)`（32 位 hex）；
+  - 随机源失败仍回退时间戳前缀（u- / v- / rid-），语义不变；
+  - cryptox 依赖升级 v0.6.7，新增 idgenx v1.3.0 依赖。
+
+### 质量
+
+- 四包覆盖率保持 100%；race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.26.0] - 2026-08-10
 
 ### 变更

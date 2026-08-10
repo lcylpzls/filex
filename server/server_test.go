@@ -379,7 +379,7 @@ func TestNewRequestID(t *testing.T) {
 		t.Fatalf("请求 ID 长度不符：%s", id)
 	}
 	old := randReader
-	randReader = func(n int) ([]byte, error) { return nil, errors.New("随机数失败") }
+	randReader = func(n int) (string, error) { return "", errors.New("随机数失败") }
 	defer func() { randReader = old }()
 	fallback := newRequestID()
 	if !strings.HasPrefix(fallback, "rid-") {

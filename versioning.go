@@ -2,7 +2,6 @@ package filex
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,22 +9,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lcylpzls/cryptox"
+	"github.com/lcylpzls/idgenx"
 	"github.com/lcylpzls/logx"
 )
 
 // versionRand 可注入，便于测试随机数失败分支。
-var versionRand = cryptox.RandomBytes
+var versionRand = idgenx.RandomHex
 
 // emptySHA256 是空内容的 SHA256，用于删除标记。
 const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 func newVersionID() string {
-	b, err := versionRand(16)
+	id, err := versionRand(16)
 	if err != nil {
 		return fmt.Sprintf("v-%d", time.Now().UnixNano())
 	}
-	return hex.EncodeToString(b)
+	return id
 }
 
 func (s *Store) bucketVersioning(bucket string) (bool, error) {

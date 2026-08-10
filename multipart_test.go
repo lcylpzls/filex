@@ -460,7 +460,7 @@ func TestNewUploadID(t *testing.T) {
 		t.Fatalf("上传 ID 长度不符：%s", id)
 	}
 	old := uploadRand
-	uploadRand = func(n int) ([]byte, error) { return nil, errors.New("随机数失败") }
+	uploadRand = func(n int) (string, error) { return "", errors.New("随机数失败") }
 	defer func() { uploadRand = old }()
 	fallback := newUploadID()
 	if !strings.HasPrefix(fallback, "u-") {

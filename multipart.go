@@ -15,6 +15,7 @@ import (
 
 	"github.com/lcylpzls/cryptox"
 	"github.com/lcylpzls/errx"
+	"github.com/lcylpzls/idgenx"
 	"github.com/lcylpzls/logx"
 )
 
@@ -22,7 +23,7 @@ import (
 const maxUploadParts = 10000
 
 // uploadRand 可注入，便于测试随机数失败分支。
-var uploadRand = cryptox.RandomBytes
+var uploadRand = idgenx.RandomHex
 
 // UploadInfo 是分片上传会话信息。
 type UploadInfo struct {
@@ -533,9 +534,9 @@ func readPartMeta(fs fsOps, path string) (*partMeta, error) {
 }
 
 func newUploadID() string {
-	b, err := uploadRand(12)
+	id, err := uploadRand(12)
 	if err != nil {
 		return fmt.Sprintf("u-%d", time.Now().UnixNano())
 	}
-	return hex.EncodeToString(b)
+	return id
 }
