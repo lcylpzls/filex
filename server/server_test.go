@@ -373,17 +373,13 @@ func TestServerPanicRecovery(t *testing.T) {
 	}
 }
 
-type failReader struct{}
-
-func (failReader) Read([]byte) (int, error) { return 0, errors.New("随机数失败") }
-
 func TestNewRequestID(t *testing.T) {
 	id := newRequestID()
 	if len(id) != 32 {
 		t.Fatalf("请求 ID 长度不符：%s", id)
 	}
 	old := randReader
-	randReader = failReader{}
+	randReader = func(n int) ([]byte, error) { return nil, errors.New("随机数失败") }
 	defer func() { randReader = old }()
 	fallback := newRequestID()
 	if !strings.HasPrefix(fallback, "rid-") {

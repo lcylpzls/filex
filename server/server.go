@@ -4,7 +4,6 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -78,7 +77,7 @@ type AuditEvent struct {
 }
 
 // randReader 可注入，便于测试随机数失败分支。
-var randReader io.Reader = rand.Reader
+var randReader = cryptox.RandomBytes
 
 type handler struct {
 	cfg HandlerConfig
@@ -644,9 +643,9 @@ func requestID(r *http.Request) string {
 }
 
 func newRequestID() string {
-	var b [16]byte
-	if _, err := io.ReadFull(randReader, b[:]); err != nil {
+	b, err := randReader(16)
+	if err != nil {
 		return fmt.Sprintf("rid-%d", time.Now().UnixNano())
 	}
-	return hex.EncodeToString(b[:])
+	return hex.EncodeToString(b)
 }

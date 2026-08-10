@@ -1,5 +1,20 @@
 # 更新日志
 
+## [v0.26.0] - 2026-08-10
+
+### 变更
+
+- 加密能力继续统一迁移至 `cryptox`（v0.25.0 的收尾）：
+  - 分片上传 ID / 版本 ID / 请求 ID 的安全随机数改用
+    `cryptox.RandomBytes`，失败仍回退时间戳前缀；
+  - 分片上传与对象读取的流式 SHA256 改用 `cryptox.NewSHA256`；
+  - 去除对 `crypto/rand`、`crypto/sha256` 的直接引用；
+  - cryptox 依赖升级至 v0.6.6。
+
+### 质量
+
+- 四包覆盖率保持 100%；race / vet / staticcheck / fuzz / govulncheck 全绿。
+
 ## [v0.25.0] - 2026-08-10
 
 ### 变更

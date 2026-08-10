@@ -310,7 +310,7 @@ func TestVersioningHelpers(t *testing.T) {
 
 	// 新版本 ID 回退分支
 	old := versionRand
-	versionRand = failReader{}
+	versionRand = func(n int) ([]byte, error) { return nil, errors.New("随机数失败") }
 	defer func() { versionRand = old }()
 	id := newVersionID()
 	if !strings.HasPrefix(id, "v-") {

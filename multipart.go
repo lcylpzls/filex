@@ -2,8 +2,6 @@ package filex
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -15,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lcylpzls/cryptox"
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/logx"
 )
@@ -23,7 +22,7 @@ import (
 const maxUploadParts = 10000
 
 // uploadRand 可注入，便于测试随机数失败分支。
-var uploadRand io.Reader = rand.Reader
+var uploadRand = cryptox.RandomBytes
 
 // UploadInfo 是分片上传会话信息。
 type UploadInfo struct {
@@ -204,7 +203,7 @@ func (s *Store) UploadPart(ctx context.Context, bucket, key, uploadID string, pa
 			cleanup()
 		}
 	}()
-	hasher := sha256.New()
+	hasher := cryptox.NewSHA256()
 	size, err := s.fs.WriteToFile(io.MultiWriter(f, hasher),
 		io.LimitReader(newContextReader(ctx, r), s.cfg.MaxObjectSize+1))
 	if err != nil {
@@ -329,7 +328,7 @@ func (s *Store) CompleteMultipartUpload(ctx context.Context, bucket, key, upload
 			cleanup()
 		}
 	}()
-	hasher := sha256.New()
+	hasher := cryptox.NewSHA256()
 	var dst io.Writer = f
 	var encryptFinish func() error
 	if cipherCtx != nil {
@@ -534,9 +533,9 @@ func readPartMeta(fs fsOps, path string) (*partMeta, error) {
 }
 
 func newUploadID() string {
-	var b [12]byte
-	if _, err := io.ReadFull(uploadRand, b[:]); err != nil {
+	b, err := uploadRand(12)
+	if err != nil {
 		return fmt.Sprintf("u-%d", time.Now().UnixNano())
 	}
-	return hex.EncodeToString(b[:])
+	return hex.EncodeToString(b)
 }

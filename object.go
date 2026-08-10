@@ -2,7 +2,6 @@ package filex
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"hash"
 	"io"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lcylpzls/cryptox"
 	"github.com/lcylpzls/errx"
 	"github.com/lcylpzls/logx"
 )
@@ -86,7 +86,7 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 
 	var dst io.Writer = f
 	var encryptFinish func() error
-	hasher := sha256.New()
+	hasher := cryptox.NewSHA256()
 	limited := io.LimitReader(newContextReader(ctx, r), s.cfg.MaxObjectSize+1)
 	if cipherCtx != nil {
 		var pw io.Writer
@@ -602,7 +602,7 @@ type verifyingReader struct {
 }
 
 func newVerifyingReader(r io.Reader, expected string) *verifyingReader {
-	return &verifyingReader{r: r, h: sha256.New(), expected: expected}
+	return &verifyingReader{r: r, h: cryptox.NewSHA256(), expected: expected}
 }
 
 func (v *verifyingReader) Read(p []byte) (int, error) {

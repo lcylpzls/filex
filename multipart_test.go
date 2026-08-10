@@ -408,10 +408,6 @@ func TestMultipartCompleteIOErrors(t *testing.T) {
 	}
 }
 
-type failReader struct{}
-
-func (failReader) Read([]byte) (int, error) { return 0, errors.New("随机数失败") }
-
 func TestMultipartAbortAndListErrors(t *testing.T) {
 	s, _ := newStore(t)
 	mustBucket(t, s, "abc")
@@ -464,7 +460,7 @@ func TestNewUploadID(t *testing.T) {
 		t.Fatalf("上传 ID 长度不符：%s", id)
 	}
 	old := uploadRand
-	uploadRand = failReader{}
+	uploadRand = func(n int) ([]byte, error) { return nil, errors.New("随机数失败") }
 	defer func() { uploadRand = old }()
 	fallback := newUploadID()
 	if !strings.HasPrefix(fallback, "u-") {
