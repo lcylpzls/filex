@@ -1,5 +1,16 @@
 # 更新日志
 
+## [v1.1.1] - 2026-08-11
+
+### 文档
+
+- README / docs 与当前代码同步：版本状态、API 与运维文档更新；
+- 清理过期规划文档与历史 API 快照。
+
+### 质量
+
+- 纯文档与版本元数据变更，无需重新运行 CI；Release 工作流照常执行。
+
 ## [v1.1.0] - 2026-08-11
 
 ### 重构
@@ -329,7 +340,7 @@
 
 - 协议响应头新增 `X-Filex-Version-ID`，`GetVersion` / `HeadVersion`
   客户端可拿到版本 ID；
-- 新增 [docs/final-review.md](docs/final-review.md) 1.0 候选终审；
+- 新增 docs/final-review.md 1.0 候选终审；
 - API 冻结快照更新至 v0.10.0。
 
 ### 结论

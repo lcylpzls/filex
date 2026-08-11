@@ -38,4 +38,4 @@ gofmt -l .   # 必须为空
 ## 分支与评审
 
 - 直接推 `main` 仅限自动化发布与维护者；
-- 新功能建议先更新 `docs/roadmap.md` 与 `docs/design.md` 再动代码。
+- 新功能建议先更新 `docs/architecture.md` 与 CHANGELOG 再动代码。

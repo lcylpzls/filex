@@ -108,7 +108,7 @@ type ByteRange struct {
 
 ### 2.5 错误
 
-全部错误为 `*errx.Error`，错误码见 [design.md](design.md) 第 7 节；
+全部错误为 `*errx.Error`，错误码见根目录 [ERRORS.md](../ERRORS.md)；
 `errors.Is` / `errx.Is` 均可匹配。
 
 ## 3. 协议 API（v0.2.0 定稿）

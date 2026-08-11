@@ -72,10 +72,9 @@ func main() {
 - v0.18.0：长任务上下文取消贯穿、Release 乱序测试、客户端 godoc 示例。
 - v0.19.0：稳定性收口（乱序×3、全量门禁、发布检查单）。
 
-> 当前状态：**1.0 候选（v0.19.0）**。路线图与自检打磨全部完成；
-> v1.0.0 是否发布由用户决定。
+> 当前状态：**v1.1.1**。
 
-详细规划见 [docs/roadmap.md](docs/roadmap.md)，设计见 [docs/design.md](docs/design.md)。
+文档索引见 [docs/README.md](docs/README.md)。
 
 ## 目录
 
@@ -83,11 +82,9 @@ func main() {
 filex/
 ├── docs/
 │   ├── README.md          # 文档索引
-│   ├── research.md        # 竞品调研与自研取舍
-│   ├── design.md          # 设计定版（定位/范围/协议/错误码）
 │   ├── architecture.md    # 架构详解（布局/原子性/并发/安全）
 │   ├── api.md             # API 定版
-│   └── roadmap.md         # 版本路线
+│   └── operations.md      # 运维手册
 ├── proto/                 # 协议常量、线格式与 Range 解析
 ├── server/                # 协议服务端（http.Handler，可挂 webx）
 ├── client/                # 协议客户端（可注入 httpx）
