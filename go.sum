@@ -29,8 +29,8 @@ github.com/lcylpzls/metricsx v1.5.4 h1:rSLbmwWhhSSLXJq5lYKcaGzKi9jZOnlh5RwWyRM1v
 github.com/lcylpzls/metricsx v1.5.4/go.mod h1:iHmbF4rw6EsgWWtc5tLCT+jvwvJaVkOwmu5euLJyQEE=
 github.com/lcylpzls/testx v1.4.5 h1:y4zvTQErVpAd1sKzev2p2yu5Q84jHk+GNoRmjWAGkSY=
 github.com/lcylpzls/testx v1.4.5/go.mod h1:kzSdyHDmf8MY/rRQK5Qhh3eeJ2ZabQ/lrxdBPKud0y8=
-github.com/lcylpzls/tracex v1.0.4 h1:uoJ1l+5kkLVGZdy1/bIVsbdR/oQLflly7Lp3mxB+ehE=
-github.com/lcylpzls/tracex v1.0.4/go.mod h1:vX8YLpaMTGvU1J45r8BfsFvbOMlgIMEibTYhrJr5XEg=
+github.com/lcylpzls/tracex v1.2.0 h1:Hhch+X6Ulc5MSQZFp+1aJLXYq5JPthRND0z4jvrCNTw=
+github.com/lcylpzls/tracex v1.2.0/go.mod h1:vX8YLpaMTGvU1J45r8BfsFvbOMlgIMEibTYhrJr5XEg=
 github.com/lcylpzls/validx v1.2.6 h1:rq2zUT1ZSVTWrQ5mAznW/BHSoNSZP9VNw1es6wRMwNc=
 github.com/lcylpzls/validx v1.2.6/go.mod h1:A72lUEFYJAfDC4H5HQfG8qI5Lg52EMhuOC0BNseBV00=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

@@ -13,7 +13,7 @@ require (
 require (
 	github.com/lcylpzls/metricsx v1.5.4
 	github.com/lcylpzls/testx v1.4.5
-	github.com/lcylpzls/tracex v1.0.4
+	github.com/lcylpzls/tracex v1.2.0
 )
 
 require (
