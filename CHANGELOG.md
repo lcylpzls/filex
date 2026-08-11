@@ -1,5 +1,17 @@
 # 更新日志
 
+
+## [v1.2.0] - 2026-08-11
+
+### 破坏性变更
+
+- `TraceHook` / `TraceAttr` 契约迁移至零依赖子模块
+  `tracex/contract`（v1.0.0），filex 不再依赖 tracex 主模块。
+
+### 依赖
+
+- 新增 `tracex/contract v1.0.0`。
+
 ## [v1.1.2] - 2026-08-11
 
 ### 依赖
