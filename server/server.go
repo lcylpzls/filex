@@ -49,6 +49,12 @@ type Store interface {
 	Health(ctx context.Context) error
 }
 
+type replicaStore interface {
+	ListAllVersions(ctx context.Context, bucket string) ([]filex.ObjectInfo, error)
+	PutReplica(ctx context.Context, bucket, key string, r io.Reader,
+		opts filex.ReplicaOptions) (filex.ObjectInfo, error)
+}
+
 // HandlerConfig 是协议处理器的配置。
 type HandlerConfig struct {
 	// Store 是底层存储引擎（必填），*filex.Store 可直接使用。
@@ -310,6 +316,20 @@ func (h *handler) handleDeleteBucket(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) handleListObjects(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	if q.Get("versions") == "true" {
+		store, ok := h.cfg.Store.(replicaStore)
+		if !ok {
+			h.writeError(w, requestID(r), errx.NewCode(filex.CodeInvalidConfig, "存储不支持复制协议"))
+			return
+		}
+		objs, err := store.ListAllVersions(r.Context(), r.PathValue("bucket"))
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusOK, proto.ToObjectListJSON(objs))
+		return
+	}
 	limit := 0
 	if s := q.Get("limit"); s != "" {
 		n, err := strconv.Atoi(s)
@@ -340,6 +360,25 @@ func (h *handler) handlePutObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	if q.Get("replica") == "1" {
+		store, ok := h.cfg.Store.(replicaStore)
+		if !ok {
+			h.writeError(w, requestID(r), errx.NewCode(filex.CodeInvalidConfig, "存储不支持复制协议"))
+			return
+		}
+		opts, err := parseReplicaOptions(r, q.Get("version-id"))
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		info, err := store.PutReplica(r.Context(), bucket, key, r.Body, opts)
+		if err != nil {
+			h.writeError(w, requestID(r), err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, proto.ToObjectJSON(info))
+		return
+	}
 	if q.Get("copy") == "1" || q.Get("move") == "1" {
 		srcBucket := q.Get("source-bucket")
 		srcKey := q.Get("source-key")
@@ -568,7 +607,8 @@ func (h *handler) writeObjectHeaders(w http.ResponseWriter, info filex.ObjectInf
 		b, _ := json.Marshal(info.Metadata)
 		hdr.Set(proto.HeaderMetadata, string(b))
 	}
-	hdr.Set(proto.HeaderCreatedAt, info.CreatedAt.UTC().Format(time.RFC3339))
+	hdr.Set(proto.HeaderCreatedAt, info.CreatedAt.UTC().Format(time.RFC3339Nano))
+	hdr.Set(proto.HeaderUpdatedAt, info.UpdatedAt.UTC().Format(time.RFC3339Nano))
 	hdr.Set("Last-Modified", info.UpdatedAt.UTC().Format(http.TimeFormat))
 	hdr.Set("Accept-Ranges", "bytes")
 	if info.VersionID != "" {
@@ -600,6 +640,37 @@ func parseMetadataHeader(v string) (map[string]string, error) {
 		return nil, errx.NewCode(filex.CodeInvalidMetadata, "元数据头必须是 JSON 对象")
 	}
 	return m, nil
+}
+
+func parseReplicaOptions(r *http.Request, versionID string) (filex.ReplicaOptions, error) {
+	metadata, err := parseMetadataHeader(r.Header.Get(proto.HeaderMetadata))
+	if err != nil {
+		return filex.ReplicaOptions{}, err
+	}
+	deleted, err := strconv.ParseBool(r.Header.Get(proto.HeaderDeleted))
+	if err != nil && r.Header.Get(proto.HeaderDeleted) != "" {
+		return filex.ReplicaOptions{}, errx.NewCode(filex.CodeInvalidArgument, "副本删除标记必须是布尔值")
+	}
+	opts := filex.ReplicaOptions{
+		VersionID:   versionID,
+		SHA256:      r.Header.Get(proto.HeaderSHA256),
+		ContentType: r.Header.Get("Content-Type"),
+		Metadata:    metadata,
+		Deleted:     deleted,
+	}
+	if createdAt := r.Header.Get(proto.HeaderCreatedAt); createdAt != "" {
+		opts.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return filex.ReplicaOptions{}, errx.NewCode(filex.CodeInvalidArgument, "副本创建时间非法")
+		}
+	}
+	if updatedAt := r.Header.Get(proto.HeaderUpdatedAt); updatedAt != "" {
+		opts.UpdatedAt, err = time.Parse(time.RFC3339Nano, updatedAt)
+		if err != nil {
+			return filex.ReplicaOptions{}, errx.NewCode(filex.CodeInvalidArgument, "副本更新时间非法")
+		}
+	}
+	return opts, nil
 }
 
 func quoteETag(etag string) string {

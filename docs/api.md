@@ -10,6 +10,7 @@
 | `filex/server` | 自研协议 HTTP 处理器 | v0.2.0 |
 | `filex/client` | 自研协议客户端 | v0.2.0 |
 | `filex/proto` | 协议消息与常量（两包共享） | v0.2.0 |
+| `filex/replication` | 单写源端到专用灾备目标端的异步镜像 | v1.3.0 |
 
 ## 2. 引擎 API（v0.1.0）
 
@@ -39,6 +40,7 @@ func (s *Store) CreateBucket(ctx context.Context, name string) (BucketInfo, erro
 func (s *Store) DeleteBucket(ctx context.Context, name string) error // 仅空桶
 func (s *Store) ListBuckets(ctx context.Context) ([]BucketInfo, error)
 func (s *Store) HeadBucket(ctx context.Context, name string) (BucketInfo, error)
+func (s *Store) GetBucket(ctx context.Context, name string) (BucketInfo, error)
 ```
 
 ### 2.3 Object
@@ -48,6 +50,16 @@ type PutOptions struct {
     ContentType   string
     Metadata      map[string]string
     ExpectedSHA256 string // 可选：写入前校验
+}
+
+type ReplicaOptions struct {
+    VersionID   string
+    SHA256      string
+    ContentType string
+    Metadata    map[string]string
+    CreatedAt   time.Time
+    UpdatedAt   time.Time
+    Deleted     bool
 }
 
 type GetOptions struct {
@@ -72,6 +84,9 @@ func (s *Store) Head(ctx context.Context, bucket, key string) (ObjectInfo, error
 func (s *Store) Delete(ctx context.Context, bucket, key string) error
 func (s *Store) List(ctx context.Context, bucket string,
     opts ListOptions) (ListResult, error)
+func (s *Store) ListAllVersions(ctx context.Context, bucket string) ([]ObjectInfo, error)
+func (s *Store) PutReplica(ctx context.Context, bucket, key string,
+    r io.Reader, opts ReplicaOptions) (ObjectInfo, error)
 ```
 
 ### 2.4 类型
@@ -256,7 +271,50 @@ func (s *Store) BucketStats(ctx context.Context, bucket string) (BucketStats, er
 
 `Store.Close` 后所有操作返回 `filex_closed`；重复关闭幂等。
 
+## 4.4 异步镜像 API（v1.3.0）
+
+```go
+type Source interface {
+    GetBucket(...)
+    ListAllVersions(...)
+    Get(...)
+    GetVersion(...)
+}
+
+type Target interface {
+    GetBucket(...)
+    CreateBucket(...)
+    SetBucketVersioning(...)
+    ListAllVersions(...)
+    PutReplica(...)
+    Delete(...)
+    DeleteVersion(...)
+}
+
+func New(cfg replication.Config) (*replication.Replicator, error)
+func (r *Replicator) Mirror(ctx context.Context) (Report, error)
+func (r *Replicator) Run(ctx context.Context) error
+func (r *Replicator) Replay(ctx context.Context) (Report, error)
+func (r *Replicator) Tasks(ctx context.Context) ([]Task, error)
+func (r *Replicator) Stats(ctx context.Context) (Stats, error)
+```
+
+`*filex.Store` 与 `*client.Client` 均可作为 `Source` / `Target`。
+目标桶是专用灾备副本，不属于选定源桶的对象与版本会被删除。
+
+协议端点：
+
+```text
+GET /filex/v1/buckets/{bucket}/objects?versions=true
+PUT /filex/v1/buckets/{bucket}/objects/{key}?replica=1&version-id=..
+```
+
+副本 PUT 使用 `X-Filex-SHA256`、`X-Filex-Metadata`、
+`X-Filex-Created-At`、`X-Filex-Updated-At`、`X-Filex-Deleted`
+传输校验与元数据。自定义服务端 `Store` 未实现副本扩展时返回
+`filex_invalid_config`，既有端点不受影响。
+
 ## 5. 运维
 
-见 [operations.md](operations.md)：备份恢复、日常巡检、健康检查、
-安全基线与升级流程。
+见 [operations.md](operations.md) 与 [replication.md](replication.md)：
+备份恢复、日常巡检、灾备镜像、健康检查、安全基线与升级流程。

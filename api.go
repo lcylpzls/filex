@@ -19,6 +19,7 @@ type (
 	ObjectInfo       = core.ObjectInfo
 	Object           = core.Object
 	PutOptions       = core.PutOptions
+	ReplicaOptions   = core.ReplicaOptions
 	GetOptions       = core.GetOptions
 	ByteRange        = core.ByteRange
 	ListOptions      = core.ListOptions

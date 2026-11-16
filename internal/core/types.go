@@ -94,6 +94,23 @@ type PutOptions struct {
 	ExpectedSHA256 string
 }
 
+// ReplicaOptions 描述一次精确副本写入。
+type ReplicaOptions struct {
+	// VersionID 是源端版本标识；空值表示非版本化对象。
+	VersionID string
+	// SHA256 是源端内容 SHA256，写入时强制校验。
+	SHA256 string
+	// ContentType 是源端内容类型。
+	ContentType string
+	// Metadata 是源端自定义元数据。
+	Metadata map[string]string
+	// CreatedAt 和 UpdatedAt 保留源端时间。
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	// Deleted 为 true 时写入删除标记，不读取内容。
+	Deleted bool
+}
+
 // GetOptions 是 Get 的选项。
 type GetOptions struct {
 	// Verify 为 true 时读取过程中流式复验 SHA256，EOF 处校验。

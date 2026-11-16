@@ -323,6 +323,51 @@ func (c *Client) ListVersions(ctx context.Context, bucket, key string) ([]filex.
 	return out.ToFilex(), nil
 }
 
+// ListAllVersions 枚举桶内全部物理对象与版本，包含删除标记。
+func (c *Client) ListAllVersions(ctx context.Context, bucket string) ([]filex.ObjectInfo, error) {
+	path := proto.BasePath + "/buckets/" + url.PathEscape(bucket) + "/objects?versions=true"
+	var out proto.ObjectListJSON
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.ToFilex(), nil
+}
+
+// PutReplica 写入源端精确副本，保留版本标识、时间和删除标记。
+func (c *Client) PutReplica(ctx context.Context, bucket, key string, r io.Reader,
+	opts filex.ReplicaOptions) (filex.ObjectInfo, error) {
+	hdr := http.Header{}
+	hdr.Set("Content-Type", normalizedContentType(opts.ContentType))
+	if opts.SHA256 != "" {
+		hdr.Set(proto.HeaderSHA256, opts.SHA256)
+	}
+	if len(opts.Metadata) > 0 {
+		b, _ := json.Marshal(opts.Metadata)
+		hdr.Set(proto.HeaderMetadata, string(b))
+	}
+	if !opts.CreatedAt.IsZero() {
+		hdr.Set(proto.HeaderCreatedAt, opts.CreatedAt.UTC().Format(time.RFC3339Nano))
+	}
+	if !opts.UpdatedAt.IsZero() {
+		hdr.Set(proto.HeaderUpdatedAt, opts.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	}
+	if opts.Deleted {
+		hdr.Set(proto.HeaderDeleted, "true")
+	}
+	setContentLength(hdr, r)
+	q := url.Values{}
+	q.Set("replica", "1")
+	if opts.VersionID != "" {
+		q.Set("version-id", opts.VersionID)
+	}
+	var out proto.ObjectInfoJSON
+	if err := c.doJSON(ctx, http.MethodPut, c.objectPath(bucket, key)+"?"+q.Encode(),
+		r, hdr, &out); err != nil {
+		return filex.ObjectInfo{}, err
+	}
+	return out.ToFilex(), nil
+}
+
 // Copy 复制对象到目标桶/键。
 func (c *Client) Copy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (filex.ObjectInfo, error) {
 	q := url.Values{}
@@ -495,6 +540,13 @@ func (c *Client) objectPath(bucket, key string) string {
 	return proto.BasePath + "/buckets/" + url.PathEscape(bucket) + "/objects/" + escapeKey(key)
 }
 
+func normalizedContentType(contentType string) string {
+	if contentType == "" {
+		return "application/octet-stream"
+	}
+	return contentType
+}
+
 func escapeKey(key string) string {
 	return (&url.URL{Path: key}).EscapedPath()
 }
@@ -581,13 +633,19 @@ func parseObjectHeaders(bucket, key string, hdr http.Header) (filex.ObjectInfo, 
 		}
 	}
 	if v := hdr.Get(proto.HeaderCreatedAt); v != "" {
-		t, err := time.Parse(time.RFC3339, v)
+		t, err := time.Parse(time.RFC3339Nano, v)
 		if err != nil {
 			return info, errx.NewCode(filex.CodeStorageFailed, "响应创建时间头非法")
 		}
 		info.CreatedAt = t
 	}
-	if v := hdr.Get("Last-Modified"); v != "" {
+	if v := hdr.Get(proto.HeaderUpdatedAt); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			return info, errx.NewCode(filex.CodeStorageFailed, "响应修改时间头非法")
+		}
+		info.UpdatedAt = t
+	} else if v := hdr.Get("Last-Modified"); v != "" {
 		t, err := http.ParseTime(v)
 		if err != nil {
 			return info, errx.NewCode(filex.CodeStorageFailed, "响应修改时间头非法")

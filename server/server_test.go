@@ -213,6 +213,116 @@ func TestServerVersioningCopyQuota(t *testing.T) {
 	}
 }
 
+func TestServerReplicationEndpoints(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	ctx := context.Background()
+	c, err := client.New(ts.URL)
+	testx.RequireNoError(t, err)
+	_, _ = c.CreateBucket(ctx, "source")
+	_, _ = c.CreateBucket(ctx, "target")
+	_, _ = c.SetBucketVersioning(ctx, "source", true)
+	_, _ = c.SetBucketVersioning(ctx, "target", true)
+	source, err := c.Put(ctx, "source", "key", strings.NewReader("value"), filex.PutOptions{
+		ContentType: "text/plain",
+		Metadata:    map[string]string{"m": "1"},
+	})
+	testx.RequireNoError(t, err)
+	_ = c.Delete(ctx, "source", "key")
+
+	versions, err := c.ListAllVersions(ctx, "source")
+	testx.RequireNoError(t, err)
+	if len(versions) != 2 || !versions[0].Deleted {
+		t.Fatalf("全量版本端点不符：%+v", versions)
+	}
+	replica, err := c.PutReplica(ctx, "target", "key", strings.NewReader("value"), filex.ReplicaOptions{
+		VersionID:   source.VersionID,
+		SHA256:      source.ETag,
+		ContentType: source.ContentType,
+		Metadata:    source.Metadata,
+		CreatedAt:   source.CreatedAt,
+		UpdatedAt:   source.UpdatedAt,
+	})
+	testx.RequireNoError(t, err)
+	if replica.VersionID != source.VersionID {
+		t.Fatalf("副本端点版本不符：%+v", replica)
+	}
+
+	for name, hdr := range map[string]http.Header{
+		"删除标记": {proto.HeaderDeleted: {"invalid"}},
+		"创建时间": {proto.HeaderCreatedAt: {"invalid"}},
+		"更新时间": {proto.HeaderUpdatedAt: {"invalid"}},
+		"元数据":  {proto.HeaderMetadata: {"{"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req, _ := http.NewRequest(http.MethodPut,
+				ts.URL+"/filex/v1/buckets/target/objects/bad?replica=1",
+				strings.NewReader("value"))
+			for key, values := range hdr {
+				for _, value := range values {
+					req.Header.Add(key, value)
+				}
+			}
+			resp, err := http.DefaultClient.Do(req)
+			testx.RequireNoError(t, err)
+			_ = resp.Body.Close()
+			testx.RequireEqual(t, resp.StatusCode, http.StatusBadRequest)
+		})
+	}
+
+	fake := &fakeStore{}
+	unsupported := httptest.NewServer(NewHandler(HandlerConfig{Store: fake}))
+	defer unsupported.Close()
+	for _, request := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/filex/v1/buckets/abc/objects?versions=true"},
+		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?replica=1"},
+	} {
+		req, _ := http.NewRequest(request.method, unsupported.URL+request.path, nil)
+		resp, err := http.DefaultClient.Do(req)
+		testx.RequireNoError(t, err)
+		_ = resp.Body.Close()
+		testx.RequireEqual(t, resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+type failingReplicaStore struct {
+	*fakeStore
+	err error
+}
+
+func (f *failingReplicaStore) ListAllVersions(context.Context, string) ([]filex.ObjectInfo, error) {
+	return nil, f.err
+}
+
+func (f *failingReplicaStore) PutReplica(context.Context, string, string, io.Reader,
+	filex.ReplicaOptions) (filex.ObjectInfo, error) {
+	return filex.ObjectInfo{}, f.err
+}
+
+func TestServerReplicationErrors(t *testing.T) {
+	injected := errors.New("复制存储失败")
+	store := &failingReplicaStore{fakeStore: &fakeStore{}, err: injected}
+	ts := httptest.NewServer(NewHandler(HandlerConfig{Store: store}))
+	defer ts.Close()
+	requests := []struct {
+		method string
+		path   string
+		body   io.Reader
+	}{
+		{http.MethodGet, "/filex/v1/buckets/abc/objects?versions=true", nil},
+		{http.MethodPut, "/filex/v1/buckets/abc/objects/k?replica=1", strings.NewReader("value")},
+	}
+	for _, request := range requests {
+		req, _ := http.NewRequest(request.method, ts.URL+request.path, request.body)
+		resp, err := http.DefaultClient.Do(req)
+		testx.RequireNoError(t, err)
+		_ = resp.Body.Close()
+		testx.RequireEqual(t, resp.StatusCode, http.StatusInternalServerError)
+	}
+}
+
 func TestServerRawHTTP(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	ctx := context.Background()

@@ -350,6 +350,7 @@ func TestClientParseObjectHeaders(t *testing.T) {
 	hdr.Set(proto.HeaderSHA256, "etag")
 	hdr.Set(proto.HeaderVersionID, "v1")
 	hdr.Set(proto.HeaderCreatedAt, "2026-08-10T00:00:00Z")
+	hdr.Set(proto.HeaderUpdatedAt, "2026-08-10T00:00:01.123456789Z")
 	hdr.Set("Last-Modified", "Mon, 10 Aug 2026 00:00:00 GMT")
 	info, err := parseObjectHeaders("abc", "k", hdr)
 	testx.RequireNoError(t, err)
@@ -360,11 +361,19 @@ func TestClientParseObjectHeaders(t *testing.T) {
 	if info.CreatedAt.IsZero() || info.UpdatedAt.IsZero() {
 		t.Fatalf("时间应为零值之外：%+v", info)
 	}
+	fallback, err := parseObjectHeaders("abc", "k", http.Header{
+		"Last-Modified": {"Mon, 10 Aug 2026 00:00:00 GMT"},
+	})
+	testx.RequireNoError(t, err)
+	if fallback.UpdatedAt.IsZero() {
+		t.Fatal("旧版 Last-Modified 应兼容解析")
+	}
 
 	bad := []http.Header{
 		{proto.HeaderSize: {"abc"}},
 		{proto.HeaderMetadata: {"{"}},
 		{proto.HeaderCreatedAt: {"bad"}},
+		{proto.HeaderUpdatedAt: {"bad"}},
 		{"Last-Modified": {"bad"}},
 	}
 	for _, h := range bad {

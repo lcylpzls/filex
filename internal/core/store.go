@@ -322,6 +322,11 @@ func (s *Store) HeadBucket(ctx context.Context, name string) (BucketInfo, error)
 	return bucketInfoFromMeta(*meta), nil
 }
 
+// GetBucket 返回桶信息。
+func (s *Store) GetBucket(ctx context.Context, name string) (BucketInfo, error) {
+	return s.HeadBucket(ctx, name)
+}
+
 // ListBuckets 返回全部桶，按名称排序。
 func (s *Store) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 	if err := s.ensureOpen(); err != nil {

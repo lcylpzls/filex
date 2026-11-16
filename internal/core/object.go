@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"hash"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,12 +19,43 @@ import (
 
 // Put 写入对象。同一键并发写时以后完成者生效（原子 rename 保证完整）。
 func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts PutOptions) (info ObjectInfo, err error) {
-	ctx, end := s.startTrace(ctx, "put", bucket, key)
+	return s.putObject(ctx, bucket, key, r, opts, putSpec{operation: "put"})
+}
+
+// PutReplica 写入源端精确副本，保留版本标识、时间和删除标记。
+func (s *Store) PutReplica(ctx context.Context, bucket, key string, r io.Reader,
+	opts ReplicaOptions) (info ObjectInfo, err error) {
+	return s.putObject(ctx, bucket, key, r, PutOptions{
+		ContentType:    opts.ContentType,
+		Metadata:       opts.Metadata,
+		ExpectedSHA256: opts.SHA256,
+	}, putSpec{
+		operation: "replicate",
+		exact:     true,
+		versionID: opts.VersionID,
+		createdAt: opts.CreatedAt,
+		updatedAt: opts.UpdatedAt,
+		deleted:   opts.Deleted,
+	})
+}
+
+type putSpec struct {
+	operation string
+	exact     bool
+	versionID string
+	createdAt time.Time
+	updatedAt time.Time
+	deleted   bool
+}
+
+func (s *Store) putObject(ctx context.Context, bucket, key string, r io.Reader,
+	opts PutOptions, spec putSpec) (info ObjectInfo, err error) {
+	ctx, end := s.startTrace(ctx, spec.operation, bucket, key)
 	defer func() { end(err) }()
 	if err := s.ensureOpen(); err != nil {
 		return ObjectInfo{}, err
 	}
-	if r == nil {
+	if r == nil && !spec.deleted {
 		return ObjectInfo{}, newCode(CodeInvalidArgument, "内容读取器不能为空")
 	}
 	if err := validateBucketName(bucket); err != nil {
@@ -35,8 +67,27 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	if err := validateMetadata(opts.Metadata); err != nil {
 		return ObjectInfo{}, err
 	}
+	if spec.versionID != "" {
+		if err := validateVersionID(spec.versionID); err != nil {
+			return ObjectInfo{}, err
+		}
+	}
+	if spec.deleted && spec.versionID == "" {
+		return ObjectInfo{}, newCode(CodeInvalidArgument, "删除标记必须提供版本 ID")
+	}
 	if opts.ExpectedSHA256 != "" && !isSHA256Hex(opts.ExpectedSHA256) {
 		return ObjectInfo{}, newCode(CodeInvalidArgument, "期望 SHA256 必须是 64 位十六进制")
+	}
+	if !spec.updatedAt.IsZero() && !spec.createdAt.IsZero() &&
+		spec.updatedAt.Before(spec.createdAt) {
+		return ObjectInfo{}, newCode(CodeInvalidArgument, "更新时间不能早于创建时间")
+	}
+	now := time.Now().UTC()
+	if spec.createdAt.IsZero() {
+		spec.createdAt = now
+	}
+	if spec.updatedAt.IsZero() {
+		spec.updatedAt = spec.createdAt
 	}
 
 	s.bucketMu.RLock()
@@ -54,14 +105,51 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "读取桶版本配置失败")
 	}
 	versionID := ""
-	if versioning {
+	if spec.exact {
+		if spec.versionID != "" && !versioning {
+			return ObjectInfo{}, newCode(CodeInvalidConfig, "副本版本模式与目标桶版本化配置不一致")
+		}
+		versionID = spec.versionID
+	} else if versioning {
 		versionID = newVersionID()
 	}
 	dataPath, metaPath := s.objectPaths(bucket, key, versionID)
-	if versionID == "" {
-		if oldMeta, err := readObjectMeta(s.fs, metaPath); err == nil && oldMeta.Key != key {
+	if oldMeta, readErr := readObjectMeta(s.fs, metaPath); readErr == nil {
+		if oldMeta.Key != key {
 			return ObjectInfo{}, newCode(CodeStorageFailed, "键哈希冲突，拒绝写入")
 		}
+		if spec.exact && replicaMetaMatches(oldMeta, key, opts, spec) {
+			return objectInfoFromMeta(bucket, *oldMeta), nil
+		}
+		if spec.exact && versionID != "" {
+			return ObjectInfo{}, newCode(CodePreconditionFailed, "目标版本已存在且内容不一致")
+		}
+	} else if spec.exact && !os.IsNotExist(readErr) {
+		return ObjectInfo{}, wrapCode(readErr, CodeStorageFailed, "读取已有对象元数据失败")
+	}
+
+	if spec.deleted {
+		meta := objectMeta{
+			Key:         key,
+			Size:        0,
+			SHA256:      emptySHA256,
+			ContentType: "application/octet-stream",
+			Metadata:    cloneMap(opts.Metadata),
+			VersionID:   versionID,
+			Deleted:     true,
+			CreatedAt:   spec.createdAt.UTC(),
+			UpdatedAt:   spec.updatedAt.UTC(),
+		}
+		if err := s.writeJSONAtomic(metaPath, meta); err != nil {
+			incError(s.metrics, bucket, string(CodeStorageFailed))
+			return ObjectInfo{}, wrapCode(err, CodeStorageFailed, "写入副本删除标记失败")
+		}
+		s.logInfo("写入副本删除标记",
+			logx.String("bucket", bucket),
+			logx.String("key", key),
+			logx.String("version_id", versionID),
+		)
+		return objectInfoFromMeta(bucket, meta), nil
 	}
 	cipherCtx := newObjectCipher(s.cfg.EncryptionKey)
 
@@ -128,7 +216,6 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 	}
 	committed = true
 
-	now := time.Now().UTC()
 	meta := objectMeta{
 		Key:         key,
 		Size:        size,
@@ -136,8 +223,8 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		ContentType: opts.ContentType,
 		Metadata:    cloneMap(opts.Metadata),
 		VersionID:   versionID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		CreatedAt:   spec.createdAt.UTC(),
+		UpdatedAt:   spec.updatedAt.UTC(),
 	}
 	if cipherCtx != nil {
 		meta.Encryption = &encryptionMeta{Algorithm: encryptionAlgorithm}
@@ -160,14 +247,41 @@ func (s *Store) Put(ctx context.Context, bucket, key string, r io.Reader, opts P
 		return ObjectInfo{}, err
 	}
 	s.syncDir(dir)
-	addBytes(s.metrics, bucket, "put", size)
-	s.logInfo("写入对象",
+	addBytes(s.metrics, bucket, spec.operation, size)
+	message := "写入对象"
+	if spec.exact {
+		message = "写入对象副本"
+	}
+	s.logInfo(message,
 		logx.String("bucket", bucket),
 		logx.String("key", key),
 		logx.String("etag", computed),
 		logx.String("version_id", versionID),
 	)
 	return objectInfoFromMeta(bucket, meta), nil
+}
+
+func replicaMetaMatches(meta *objectMeta, key string, opts PutOptions, spec putSpec) bool {
+	if meta == nil || meta.Key != key || meta.VersionID != spec.versionID ||
+		meta.Deleted != spec.deleted || meta.ContentType != normalizedContentType(opts.ContentType) ||
+		!maps.Equal(meta.Metadata, opts.Metadata) {
+		return false
+	}
+	if spec.deleted {
+		return meta.SHA256 == emptySHA256 && meta.Size == 0 &&
+			meta.CreatedAt.Equal(spec.createdAt) && meta.UpdatedAt.Equal(spec.updatedAt)
+	}
+	if opts.ExpectedSHA256 == "" || !strings.EqualFold(meta.SHA256, opts.ExpectedSHA256) {
+		return false
+	}
+	return meta.CreatedAt.Equal(spec.createdAt) && meta.UpdatedAt.Equal(spec.updatedAt)
+}
+
+func normalizedContentType(contentType string) string {
+	if contentType == "" {
+		return "application/octet-stream"
+	}
+	return contentType
 }
 
 // Get 读取对象；opts.Verify 开启时 EOF 复验 SHA256。

@@ -11,5 +11,7 @@ const (
 	HeaderSize      = "X-Filex-Size"
 	HeaderRequestID = "X-Filex-Request-ID"
 	HeaderCreatedAt = "X-Filex-Created-At"
+	HeaderUpdatedAt = "X-Filex-Updated-At"
 	HeaderVersionID = "X-Filex-Version-ID"
+	HeaderDeleted   = "X-Filex-Deleted"
 )

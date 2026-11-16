@@ -5,7 +5,7 @@
 ## 环境
 
 - Windows 11 / AMD Ryzen 5 7600 / NVMe；
-- Go 1.26.5，默认配置（fsync 开启、无加密）；
+- Go 1.27.4，默认配置（fsync 开启、无加密）；
 - 对象 1 KiB；List 场景 1000 个对象。
 
 ## 结果

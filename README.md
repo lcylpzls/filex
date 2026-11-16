@@ -71,8 +71,11 @@ func main() {
 - v0.17.0：静态加密升级为分块 AES-256-GCM（认证加密）。
 - v0.18.0：长任务上下文取消贯穿、Release 乱序测试、客户端 godoc 示例。
 - v0.19.0：稳定性收口（乱序×3、全量门禁、发布检查单）。
+- v1.0.0–v1.2.0：正式版 API、`internal/core` 分层、家族契约统一。
+- v1.3.0：跨区域异步对象镜像、精确版本与删除标记复制、持久化任务、
+  退避重试、人工重放与复制可观测；Go 基线升级至 1.27.4。
 
-> 当前状态：**v1.2.0**。
+> 当前状态：**v1.3.0**。
 
 文档索引见 [docs/README.md](docs/README.md)。
 
@@ -84,10 +87,12 @@ filex/
 │   ├── README.md          # 文档索引
 │   ├── architecture.md    # 架构详解（布局/原子性/并发/安全）
 │   ├── api.md             # API 定版
-│   └── operations.md      # 运维手册
+│   ├── operations.md      # 运维手册
+│   └── replication.md     # 灾备镜像使用与边界
 ├── proto/                 # 协议常量、线格式与 Range 解析
 ├── server/                # 协议服务端（http.Handler，可挂 webx）
 ├── client/                # 协议客户端（可注入 httpx）
+├── replication/           # 单写源端到专用灾备目标端的异步镜像
 ├── examples/
 │   ├── basic/             # 引擎基础用法（独立模块）
 │   ├── protocol/          # 服务端 + 客户端端到端（独立模块）

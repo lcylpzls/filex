@@ -54,6 +54,24 @@ func (s *Store) objectPaths(bucket, key, versionID string) (string, string) {
 	return s.versionDataPath(bucket, key, versionID), s.versionMetaPath(bucket, key, versionID)
 }
 
+// validateVersionID 限制版本标识为文件名安全字符，避免路径逃逸。
+func validateVersionID(versionID string) error {
+	if versionID == "" {
+		return newCode(CodeInvalidArgument, "版本 ID 不能为空")
+	}
+	if len(versionID) > 128 {
+		return newCode(CodeInvalidArgument, "版本 ID 过长")
+	}
+	for _, r := range versionID {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
+			r >= '0' && r <= '9' || r == '-' {
+			continue
+		}
+		return newCode(CodeInvalidArgument, "版本 ID 含非法字符")
+	}
+	return nil
+}
+
 // readVersionMetas 读取某个键的全部版本元数据（不排序）。
 func (s *Store) readVersionMetas(bucket, key string) ([]objectMeta, error) {
 	entries, err := s.fs.ReadDir(s.versionDir(bucket, key))
@@ -295,8 +313,8 @@ func (s *Store) GetVersion(ctx context.Context, bucket, key, versionID string, o
 	if err := validateKey(key, s.cfg.MaxKeyBytes); err != nil {
 		return nil, err
 	}
-	if versionID == "" {
-		return nil, newCode(CodeInvalidArgument, "版本 ID 不能为空")
+	if err := validateVersionID(versionID); err != nil {
+		return nil, err
 	}
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
@@ -329,8 +347,8 @@ func (s *Store) HeadVersion(ctx context.Context, bucket, key, versionID string) 
 	if err := validateKey(key, s.cfg.MaxKeyBytes); err != nil {
 		return ObjectInfo{}, err
 	}
-	if versionID == "" {
-		return ObjectInfo{}, newCode(CodeInvalidArgument, "版本 ID 不能为空")
+	if err := validateVersionID(versionID); err != nil {
+		return ObjectInfo{}, err
 	}
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
@@ -363,8 +381,8 @@ func (s *Store) DeleteVersion(ctx context.Context, bucket, key, versionID string
 	if err := validateKey(key, s.cfg.MaxKeyBytes); err != nil {
 		return err
 	}
-	if versionID == "" {
-		return newCode(CodeInvalidArgument, "版本 ID 不能为空")
+	if err := validateVersionID(versionID); err != nil {
+		return err
 	}
 	s.bucketMu.RLock()
 	defer s.bucketMu.RUnlock()
@@ -438,4 +456,75 @@ func (s *Store) ListVersions(ctx context.Context, bucket, key string) ([]ObjectI
 		logx.String("key", key),
 	)
 	return out, nil
+}
+
+// ListAllVersions 枚举桶内全部物理对象与版本，包含删除标记。
+func (s *Store) ListAllVersions(ctx context.Context, bucket string) ([]ObjectInfo, error) {
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
+	if err := validateBucketName(bucket); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, wrapCtxErr(err)
+	}
+	s.bucketMu.RLock()
+	defer s.bucketMu.RUnlock()
+	if _, err := s.ensureBucket(bucket); err != nil {
+		return nil, err
+	}
+	entries, err := s.fs.ReadDir(s.objectsDir(bucket))
+	if err != nil {
+		return nil, wrapCode(err, CodeStorageFailed, "扫描对象版本失败")
+	}
+	var metas []objectMeta
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if entry.Name() == ".uploads" {
+				continue
+			}
+			sub, err := s.fs.ReadDir(filepath.Join(s.objectsDir(bucket), entry.Name()))
+			if err != nil {
+				continue
+			}
+			for _, file := range sub {
+				if !strings.HasPrefix(file.Name(), "v-") || !strings.HasSuffix(file.Name(), ".json") {
+					continue
+				}
+				meta, err := readObjectMeta(s.fs, filepath.Join(s.objectsDir(bucket), entry.Name(), file.Name()))
+				if err != nil {
+					continue
+				}
+				metas = append(metas, *meta)
+			}
+			continue
+		}
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		meta, err := readObjectMeta(s.fs, filepath.Join(s.objectsDir(bucket), entry.Name()))
+		if err != nil {
+			continue
+		}
+		metas = append(metas, *meta)
+	}
+	sort.Slice(metas, func(i, j int) bool {
+		if metas[i].Key != metas[j].Key {
+			return metas[i].Key < metas[j].Key
+		}
+		return sortMetasNewestFirstCompare(metas[i], metas[j])
+	})
+	out := make([]ObjectInfo, 0, len(metas))
+	for _, meta := range metas {
+		out = append(out, objectInfoFromMeta(bucket, meta))
+	}
+	return out, nil
+}
+
+func sortMetasNewestFirstCompare(a, b objectMeta) bool {
+	if !a.UpdatedAt.Equal(b.UpdatedAt) {
+		return a.UpdatedAt.After(b.UpdatedAt)
+	}
+	return a.VersionID > b.VersionID
 }
